@@ -21,12 +21,12 @@ class AccountResponse(AccountPayload):
 
 
 class EventPayload(BaseModel):
-    month: date
+    month: date | None = None
     name: str = Field(min_length=1, max_length=120)
     amount: Decimal = Field(gt=0)
     type: EventType
     status: EventStatus = EventStatus.PLANNED
-    event_date: date | None = None
+    event_date: date
     source_account_id: str | None = None
     destination_account_id: str | None = None
     recurrence_months: int | None = Field(default=None, gt=0)
@@ -36,3 +36,5 @@ class EventPayload(BaseModel):
 
 class EventResponse(EventPayload):
     id: str
+    month: date
+    event_date: date | None = None

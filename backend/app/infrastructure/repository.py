@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.domain.models import Account, AccountType, Event, EventStatus, EventType, Liquidity
@@ -11,7 +11,8 @@ class PlannerRepository:
         self.session = session
 
     def list_accounts(self) -> list[Account]:
-        return [self._account_from_row(row) for row in self.session.scalars(select(AccountRow).order_by(AccountRow.name))]
+        query = select(AccountRow).order_by(AccountRow.name)
+        return [self._account_from_row(row) for row in self.session.scalars(query)]
 
     def get_account(self, account_id: str) -> AccountRow | None:
         return self.session.get(AccountRow, account_id)
@@ -29,6 +30,12 @@ class PlannerRepository:
         self.session.delete(row)
         self.session.commit()
         return True
+
+    def count_account_events(self, account_id: str) -> int:
+        statement = select(func.count(EventRow.id)).where(
+            (EventRow.source_account_id == account_id) | (EventRow.destination_account_id == account_id)
+        )
+        return int(self.session.scalar(statement) or 0)
 
     def list_events(self) -> list[Event]:
         return [self._event_from_row(row) for row in self.session.scalars(select(EventRow).order_by(EventRow.month, EventRow.event_date))]

@@ -25,6 +25,7 @@ export type Event = {
 
 export type ForecastMonth = {
   month: string;
+  balances: Record<string, string>;
   cash: string;
   assets: string;
   debt: string;
@@ -52,5 +53,8 @@ export const api = {
   events: () => request<Event[]>("/events"),
   forecast: (period: number) => request<Forecast>(`/forecast?period_months=${period}`),
   createAccount: (payload: Omit<Account, "id">) => request<Account>("/accounts", { method: "POST", body: JSON.stringify(payload) }),
+  deleteAccount: (id: string) => request<void>(`/accounts/${id}`, { method: "DELETE" }),
   createEvent: (payload: Omit<Event, "id">) => request<Event>("/events", { method: "POST", body: JSON.stringify(payload) }),
+  updateEvent: (id: string, payload: Omit<Event, "id">) => request<Event>(`/events/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
+  deleteEvent: (id: string) => request<void>(`/events/${id}`, { method: "DELETE" }),
 };

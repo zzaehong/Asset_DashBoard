@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useState } from "react";
+import { FormEvent, ReactNode, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -7,10 +7,13 @@ import { Account, AccountType, api, Event } from "./lib/api";
 const currency = new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW", maximumFractionDigits: 0 });
 const formatMoney = (value: string | number) => currency.format(Number(value));
 const today = new Date().toISOString().slice(0, 10);
-const month = `${today.slice(0, 7)}-01`;
+const currentMonth = today.slice(0, 7);
+
+type Page = "dashboard" | "accounts" | "events";
 
 export default function App() {
   const queryClient = useQueryClient();
+  const [page, setPage] = useState<Page>("dashboard");
   const [period, setPeriod] = useState(12);
   const accounts = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
   const events = useQuery({ queryKey: ["events"], queryFn: api.events });
@@ -18,46 +21,101 @@ export default function App() {
   const refresh = () => queryClient.invalidateQueries();
   const createAccount = useMutation({ mutationFn: api.createAccount, onSuccess: refresh });
   const createEvent = useMutation({ mutationFn: api.createEvent, onSuccess: refresh });
+  const updateEvent = useMutation({ mutationFn: ({ id, payload }: { id: string; payload: Omit<Event, "id"> }) => api.updateEvent(id, payload), onSuccess: refresh });
+  const deleteEvent = useMutation({ mutationFn: api.deleteEvent, onSuccess: refresh });
+  const deleteAccount = useMutation({ mutationFn: api.deleteAccount, onSuccess: refresh });
+  const orderedEvents = useMemo(() => [...(events.data ?? [])].sort((a, b) => eventDate(a).localeCompare(eventDate(b))), [events.data]);
 
   const latest = forecast.data?.months.at(-1);
-  const cash = latest?.cash ?? "0";
-  const netWorth = latest?.net_worth ?? "0";
   const chartData = forecast.data?.months.map((item) => ({
     month: item.month.slice(0, 7), cash: Number(item.cash), netWorth: Number(item.net_worth),
   })) ?? [];
+  const accountList = accounts.data ?? [];
 
   return (
     <main>
-      <header>
-        <div><p className="eyebrow">개인용 MVP</p><h1>월간 자산 흐름 플래너</h1></div>
-        <label>분석 기간 <select value={period} onChange={(event) => setPeriod(Number(event.target.value))}>{[3, 6, 12].map((value) => <option key={value} value={value}>{value}개월</option>)}</select></label>
+      <header className="app-header">
+        <div><p className="eyebrow">개인용 MVP</p><h1>월간 자산 흐름 플래너</h1><p className="intro">앞으로 일어날 중요한 재무 사건을 입력하고, 현금과 순자산의 흐름을 확인하세요.</p></div>
+        {page === "dashboard" && <label className="period-control">분석 기간<select value={period} onChange={(event) => setPeriod(Number(event.target.value))}>{[3, 6, 12].map((value) => <option key={value} value={value}>{value}개월</option>)}</select></label>}
       </header>
-      <section className="metrics">
-        <Metric title="기간 말 현금" value={formatMoney(cash)} />
-        <Metric title="기간 말 순자산" value={formatMoney(netWorth)} />
-        <Metric title="감지된 위험" value={`${forecast.data?.risks.length ?? 0}건`} danger={Boolean(forecast.data?.risks.length)} />
-      </section>
-      <section className="panel chart"><h2>현금과 순자산 흐름</h2>{forecast.isError ? <Error /> : <ResponsiveContainer width="100%" height={260}><LineChart data={chartData}><XAxis dataKey="month" /><YAxis tickFormatter={(value) => `${Math.round(value / 10000)}만`} /><Tooltip formatter={(value) => formatMoney(value as number)} /><Line type="monotone" dataKey="cash" stroke="#e36d4f" strokeWidth={2} /><Line type="monotone" dataKey="netWorth" stroke="#216e67" strokeWidth={2} /></LineChart></ResponsiveContainer>}</section>
-      <section className="grid">
-        <div className="panel"><h2>계좌</h2><AccountForm onSubmit={(payload) => createAccount.mutate(payload)} /><List rows={accounts.data} render={(item) => <><strong>{item.name}</strong><span>{item.type} · {formatMoney(item.current_balance)}</span></>} /></div>
-        <div className="panel"><h2>월별 이벤트</h2><EventForm accounts={accounts.data ?? []} onSubmit={(payload) => createEvent.mutate(payload)} /><List rows={events.data} render={(item) => <><strong>{item.name}</strong><span>{item.month.slice(0, 7)} · {item.type} · {formatMoney(item.amount)}</span></>} /></div>
-      </section>
-      <section className="panel"><h2>Risk Guard</h2>{forecast.data?.risks.length ? <ul className="risks">{forecast.data.risks.map((risk, index) => <li key={`${risk.type}-${index}`}><strong>{risk.type === "CASH_SHORTAGE" ? "현금 부족" : "투자자금 이동 후 현금 부족"}</strong><span>{risk.date} · {formatMoney(risk.cash_balance)}</span></li>)}</ul> : <p className="muted">현재 선택한 기간에 감지된 현금 위험이 없습니다.</p>}</section>
+      <nav className="nav" aria-label="주 메뉴">
+        <button className={page === "dashboard" ? "active" : "quiet"} onClick={() => setPage("dashboard")}>대시보드</button>
+        <button className={page === "accounts" ? "active" : "quiet"} onClick={() => setPage("accounts")}>계좌 관리</button>
+        <button className={page === "events" ? "active" : "quiet"} onClick={() => setPage("events")}>이벤트 추가</button>
+      </nav>
+
+      {page === "dashboard" && <Dashboard accounts={accountList} events={orderedEvents} chartData={chartData} latest={latest} risks={forecast.data?.risks ?? []} forecastError={forecast.isError} onAddAccount={() => setPage("accounts")} onManageEvents={() => setPage("events")} onDeleteAccount={(id) => deleteAccount.mutate(id)} />}
+      {page === "accounts" && <AccountsPage accounts={accountList} events={orderedEvents} onSubmit={(payload) => createAccount.mutate(payload)} onDelete={(id) => deleteAccount.mutate(id)} />}
+      {page === "events" && <EventsPage accounts={accountList} events={orderedEvents} onCreate={(payload) => createEvent.mutate(payload)} onUpdate={(id, payload) => updateEvent.mutate({ id, payload })} onDelete={(id) => deleteEvent.mutate(id)} />}
     </main>
   );
 }
 
+function Dashboard({ accounts, events, chartData, latest, risks, forecastError, onAddAccount, onManageEvents, onDeleteAccount }: { accounts: Account[]; events: Event[]; chartData: { month: string; cash: number; netWorth: number }[]; latest?: { balances: Record<string, string>; cash: string; net_worth: string }; risks: { type: string; date: string; cash_balance: string }[]; forecastError: boolean; onAddAccount: () => void; onManageEvents: () => void; onDeleteAccount: (id: string) => void }) {
+  return <>
+    <section className="metrics">
+      <Metric title="기간 말 현금" value={formatMoney(latest?.cash ?? "0")} />
+      <Metric title="기간 말 순자산" value={formatMoney(latest?.net_worth ?? "0")} />
+      <Metric title="감지된 위험" value={`${risks.length}건`} danger={Boolean(risks.length)} />
+    </section>
+    <section className="panel chart"><SectionHeading title="현금과 순자산 흐름" description="선택한 분석 기간 동안의 월별 예상 흐름입니다." />{forecastError ? <Error /> : <ResponsiveContainer width="100%" height={260}><LineChart data={chartData}><XAxis dataKey="month" /><YAxis tickFormatter={(value) => `${Math.round(value / 10000)}만`} /><Tooltip formatter={(value) => formatMoney(value as number)} /><Line type="monotone" dataKey="cash" name="현금" stroke="#e36d4f" strokeWidth={2} /><Line type="monotone" dataKey="netWorth" name="순자산" stroke="#216e67" strokeWidth={2} /></LineChart></ResponsiveContainer>}</section>
+    <section className="grid dashboard-grid">
+      <div className="panel"><SectionHeading title="계좌별 예상 잔액" description="선택한 분석 기간의 마지막 시점에 예상되는 계좌 잔액입니다." actions={<button onClick={onAddAccount}>계좌 추가</button>} /><AccountList accounts={accounts} events={events} projectedBalances={latest?.balances} onDelete={onDeleteAccount} /></div>
+      <div className="panel"><SectionHeading title="이벤트 타임라인" description="등록한 재무 사건을 발생 예정일 순서로 보여줍니다." actions={<button onClick={onManageEvents}>이벤트 추가·수정하기</button>} /><EventTimeline events={events} /></div>
+    </section>
+    <section className="panel"><SectionHeading title="Risk Guard" description="행동을 추천하지 않고, 현금 부족이 언제 발생하는지만 알려줍니다." />{risks.length ? <ul className="risks">{risks.map((risk, index) => <li key={`${risk.type}-${index}`}><strong>{risk.type === "CASH_SHORTAGE" ? "현금 부족" : "투자자금 이동 후 현금 부족"}</strong><span>{risk.date} · {formatMoney(risk.cash_balance)}</span></li>)}</ul> : <p className="muted">현재 선택한 기간에 감지된 현금 위험이 없습니다.</p>}</section>
+  </>;
+}
+
+function AccountsPage({ accounts, events, onSubmit, onDelete }: { accounts: Account[]; events: Event[]; onSubmit: (payload: Omit<Account, "id">) => void; onDelete: (id: string) => void }) {
+  return <section className="page-grid"><div className="panel form-panel"><SectionHeading title="계좌 추가" description="현재 보유한 자산과 부채를 계좌 단위로 등록하세요. 모든 계좌는 같은 현재 상태 기준일을 사용해야 합니다." /><AccountForm onSubmit={onSubmit} /></div><div className="panel"><SectionHeading title="등록된 계좌" description="초기 잔액과 관계없이, 연결된 이벤트가 없는 계좌만 삭제할 수 있습니다." /><AccountList accounts={accounts} events={events} onDelete={onDelete} /></div></section>;
+}
+
+function EventsPage({ accounts, events, onCreate, onUpdate, onDelete }: { accounts: Account[]; events: Event[]; onCreate: (payload: Omit<Event, "id">) => void; onUpdate: (id: string, payload: Omit<Event, "id">) => void; onDelete: (id: string) => void }) {
+  const [editing, setEditing] = useState<Event | undefined>();
+  return <section className="page-grid"><div className="panel form-panel"><SectionHeading title={editing ? "이벤트 수정" : "이벤트 추가"} description="월급, 지출, 이체처럼 앞으로 일어날 중요한 사건만 기록하세요. 이벤트 유형에 따라 필요한 계좌만 표시됩니다." /><EventForm key={editing?.id ?? "new"} accounts={accounts} initial={editing} submitLabel={editing ? "변경 저장" : "이벤트 추가"} onSubmit={(payload) => { if (editing) { onUpdate(editing.id, payload); setEditing(undefined); } else onCreate(payload); }} onCancel={editing ? () => setEditing(undefined) : undefined} /></div><div className="panel"><SectionHeading title="입력 안내" description="이벤트는 정확한 발생일을 기준으로 계산합니다." /><ul className="guide-list"><li><strong>외부에서 입금</strong><span>수입을 선택하고 입금 계좌만 지정합니다.</span></li><li><strong>외부로 출금</strong><span>지출을 선택하고 출금 계좌만 지정합니다.</span></li><li><strong>계좌 간 이동</strong><span>이체를 선택하고 출발·도착 계좌를 모두 지정합니다.</span></li><li><strong>수정·삭제</strong><span>아래 이벤트 목록에서 내용을 수정하거나 삭제할 수 있습니다.</span></li></ul><div className="event-management"><EventTimeline events={events} onEdit={setEditing} onDelete={onDelete} /></div></div></section>;
+}
+
 function Metric({ title, value, danger = false }: { title: string; value: string; danger?: boolean }) { return <article className={`metric ${danger ? "danger" : ""}`}><p>{title}</p><strong>{value}</strong></article>; }
+function SectionHeading({ title, description, actions }: { title: string; description?: string; actions?: ReactNode }) { return <div className="section-heading"><div className="heading-row"><h2>{title}</h2>{actions && <div className="heading-actions">{actions}</div>}</div>{description && <p>{description}</p>}</div>; }
 function Error() { return <p className="error">예측 결과를 불러오지 못했습니다. 먼저 동일 기준일의 계좌를 등록해 주세요.</p>; }
 function List<T>({ rows, render }: { rows?: T[]; render: (item: T) => ReactNode }) { return <ul className="list">{rows?.length ? rows.map((row, index) => <li key={index}>{render(row)}</li>) : <li className="muted">등록된 항목이 없습니다.</li>}</ul>; }
+function EventTimeline({ events, onEdit, onDelete }: { events: Event[]; onEdit?: (item: Event) => void; onDelete?: (id: string) => void }) { return events.length ? <ol className="timeline">{events.map((item) => <li key={item.id}><time>{eventDate(item)}</time><div><strong>{item.name}</strong><span>{eventLabel(item.type)} · {formatMoney(item.amount)}</span></div>{onEdit && onDelete && <div className="row-actions"><button className="secondary" onClick={() => onEdit(item)}>수정</button><button className="danger-button" onClick={() => { if (window.confirm("이 이벤트를 삭제할까요?")) onDelete(item.id); }}>삭제</button></div>}</li>)}</ol> : <p className="muted">등록된 이벤트가 없습니다.</p>; }
+function AccountList({ accounts, events, projectedBalances, onDelete }: { accounts: Account[]; events: Event[]; projectedBalances?: Record<string, string>; onDelete: (id: string) => void }) { return accounts.length ? <ul className="account-list">{accounts.map((item) => { const projected = projectedBalances?.[item.id]; const linkedEvents = events.filter((event) => event.source_account_id === item.id || event.destination_account_id === item.id).length; return <li key={item.id}><div><strong>{item.name}</strong><span>{accountLabel(item.type)} · {projected === undefined ? `현재 ${formatMoney(item.current_balance)}` : `예상 ${formatMoney(projected)}`}</span>{projected !== undefined && Number(projected) !== Number(item.current_balance) && <small>현재 기준 {formatMoney(item.current_balance)}</small>}</div><button className="danger-button" onClick={() => { if (linkedEvents > 0) { window.alert(`연결된 이벤트가 ${linkedEvents}개 있어 삭제할 수 없습니다. 이벤트를 먼저 삭제하거나 계좌 연결을 해제하세요.`); return; } if (window.confirm("이 계좌를 삭제할까요? 초기 잔액은 삭제 가능 여부에 영향을 주지 않습니다.")) onDelete(item.id); }}>삭제</button></li>; })}</ul> : <p className="muted">등록된 계좌가 없습니다.</p>; }
 
 function AccountForm({ onSubmit }: { onSubmit: (payload: Omit<Account, "id">) => void }) {
   const [type, setType] = useState<AccountType>("CASH");
-  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); onSubmit({ name: String(data.get("name")), type, current_balance: String(data.get("balance")), as_of_date: String(data.get("asOf")), currency: "KRW", liquidity: "LIQUID", emergency_fund_eligible: Boolean(data.get("emergency")) }); event.currentTarget.reset(); }
-  return <form onSubmit={submit}><input name="name" placeholder="계좌 이름" required /><select value={type} onChange={(event) => setType(event.target.value as AccountType)}>{["CASH", "SAVINGS", "INVESTMENT", "DEBT", "OTHER_ASSET"].map((item) => <option key={item}>{item}</option>)}</select><input name="balance" type="number" min="0" placeholder="현재 잔액" required /><input name="asOf" type="date" defaultValue={today} required /><button>계좌 추가</button></form>;
+  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); onSubmit({ name: String(data.get("name")), type, current_balance: String(data.get("balance")), as_of_date: String(data.get("asOf")), currency: "KRW", liquidity: "LIQUID", emergency_fund_eligible: Boolean(data.get("emergency")) }); event.currentTarget.reset(); setType("CASH"); }
+  return <form onSubmit={submit}>
+    <label>계좌 이름<input name="name" placeholder="예: 생활비 통장" required /><small>사용자가 알아보기 쉬운 이름을 입력하세요.</small></label>
+    <label>계좌 종류<select value={type} onChange={(event) => setType(event.target.value as AccountType)}>{(["CASH", "SAVINGS", "INVESTMENT", "DEBT", "OTHER_ASSET"] as AccountType[]).map((item) => <option key={item} value={item}>{accountLabel(item)}</option>)}</select><small>{accountDescription(type)}</small></label>
+    <label>현재 잔액 (KRW)<input name="balance" type="number" min="0" placeholder="예: 3000000" required /><small>기준일 현재 계좌에 있는 금액입니다. 부채는 남은 상환액을 입력합니다.</small></label>
+    <label>현재 상태 기준일<input name="asOf" type="date" defaultValue={today} required /><small>이 날짜의 잔액을 시작점으로 미래를 계산합니다. 모든 계좌가 같은 날짜를 사용해야 합니다.</small></label>
+    <label className="check-label"><input name="emergency" type="checkbox" /> 비상시에 쓸 돈으로 표시<small>예상치 못한 지출이 생겼을 때 사용할 수 있는 돈으로 계산합니다.</small></label>
+    <button>계좌 추가</button>
+  </form>;
 }
 
-function EventForm({ accounts, onSubmit }: { accounts: Account[]; onSubmit: (payload: Omit<Event, "id">) => void }) {
-  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); onSubmit({ name: String(data.get("name")), month: String(data.get("month")), event_date: String(data.get("date")) || null, amount: String(data.get("amount")), type: String(data.get("type")), status: "PLANNED", source_account_id: String(data.get("source")) || null, destination_account_id: String(data.get("destination")) || null }); event.currentTarget.reset(); }
-  return <form onSubmit={submit}><input name="name" placeholder="사건 이름" required /><select name="type">{["INCOME", "EXPENSE", "TRANSFER", "INVESTMENT_CONTRIBUTION", "DEBT_DRAW", "DEBT_PRINCIPAL_REPAYMENT", "DEBT_INTEREST", "SAVINGS_MATURITY"].map((item) => <option key={item}>{item}</option>)}</select><input name="amount" type="number" min="1" placeholder="금액" required /><input name="month" type="date" defaultValue={month} required /><input name="date" type="date" /><select name="source"><option value="">출발 계좌</option>{accounts.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><select name="destination"><option value="">도착 계좌</option>{accounts.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><button disabled={!accounts.length}>이벤트 추가</button></form>;
+function EventForm({ accounts, initial, submitLabel = "이벤트 추가", onSubmit, onCancel }: { accounts: Account[]; initial?: Event; submitLabel?: string; onSubmit: (payload: Omit<Event, "id">) => void; onCancel?: () => void }) {
+  const [type, setType] = useState(initial?.type ?? "INCOME");
+  const sourceLabel = type === "EXPENSE" || type === "DEBT_INTEREST" ? "출금 계좌" : type === "DEBT_DRAW" ? "부채 계좌" : type === "DEBT_PRINCIPAL_REPAYMENT" || type === "SAVINGS_MATURITY" ? "출발 계좌" : "출발 계좌";
+  const destinationLabel = type === "INCOME" ? "입금 계좌" : type === "DEBT_DRAW" ? "입금될 입출금 계좌" : type === "DEBT_PRINCIPAL_REPAYMENT" ? "상환할 부채 계좌" : type === "SAVINGS_MATURITY" ? "만기 금액을 받을 입출금 계좌" : "도착 계좌";
+  const needsSource = !["INCOME"].includes(type);
+  const needsDestination = !["EXPENSE", "DEBT_INTEREST"].includes(type);
+  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); const eventDate = String(data.get("date")); onSubmit({ name: String(data.get("name")), month: `${eventDate.slice(0, 7)}-01`, event_date: eventDate, amount: String(data.get("amount")), type, status: "PLANNED", source_account_id: needsSource ? String(data.get("source")) || null : null, destination_account_id: needsDestination ? String(data.get("destination")) || null : null }); event.currentTarget.reset(); setType("INCOME"); }
+  return <form onSubmit={submit}>
+    <label>이벤트 이름<input name="name" defaultValue={initial?.name} placeholder="예: 8월 월급, 이사 비용" required /><small>무슨 일이 일어나는지 짧게 적습니다.</small></label>
+    <label>이벤트 유형<select name="type" value={type} onChange={(event) => setType(event.target.value)}>{["INCOME", "EXPENSE", "TRANSFER", "INVESTMENT_CONTRIBUTION", "DEBT_DRAW", "DEBT_PRINCIPAL_REPAYMENT", "DEBT_INTEREST", "SAVINGS_MATURITY"].map((item) => <option key={item} value={item}>{eventLabel(item)}</option>)}</select><small>{eventDescription(type)}</small></label>
+    <label>금액 (KRW)<input name="amount" defaultValue={initial?.amount} type="number" min="1" placeholder="예: 2800000" required /><small>해당 사건으로 변하는 금액을 입력합니다.</small></label>
+    <label>발생일<input name="date" type="date" defaultValue={initial?.event_date ?? `${initial?.month.slice(0, 7) ?? currentMonth}-01`} required /><small>이 날짜를 기준으로 월별 흐름과 월중 현금 부족을 계산합니다.</small></label>
+    {needsSource && <label>{sourceLabel}<select name="source" defaultValue={initial?.source_account_id ?? ""} required><option value="">계좌를 선택하세요</option>{accounts.map((item) => <option value={item.id} key={item.id}>{item.name} ({accountLabel(item.type)})</option>)}</select><small>{type === "EXPENSE" ? "외부로 돈이 나가는 입출금 계좌입니다." : "돈이 빠져나가거나 부채가 발생하는 계좌입니다."}</small></label>}
+    {needsDestination && <label>{destinationLabel}<select name="destination" defaultValue={initial?.destination_account_id ?? ""} required><option value="">계좌를 선택하세요</option>{accounts.map((item) => <option value={item.id} key={item.id}>{item.name} ({accountLabel(item.type)})</option>)}</select><small>{type === "INCOME" ? "외부에서 돈이 들어오는 입출금 계좌입니다." : "돈이 들어오거나 이동하는 계좌입니다."}</small></label>}
+    <div className="form-actions"><button disabled={!accounts.length}>{submitLabel}</button>{onCancel && <button type="button" className="secondary" onClick={onCancel}>수정 취소</button>}</div>{!accounts.length && <p className="error">이벤트를 추가하려면 먼저 계좌 관리에서 계좌를 등록하세요.</p>}
+  </form>;
 }
+
+function eventDate(item: Event) { return item.event_date ?? `${item.month.slice(0, 7)}-01`; }
+function accountLabel(type: AccountType) { return ({ CASH: "입출금", SAVINGS: "저축", INVESTMENT: "투자", DEBT: "부채", OTHER_ASSET: "기타 자산" }[type]); }
+function accountDescription(type: AccountType) { return ({ CASH: "생활비·급여·비상금처럼 바로 사용할 수 있는 계좌", SAVINGS: "예금·적금처럼 저축 목적의 계좌", INVESTMENT: "주식·ETF·암호화폐 등 투자 계좌", DEBT: "대출처럼 상환해야 하는 부채 계좌", OTHER_ASSET: "보증금·차량처럼 계좌 외 자산" }[type]); }
+function eventLabel(type: string) { return ({ INCOME: "수입", EXPENSE: "지출", TRANSFER: "계좌 간 이체", INVESTMENT_CONTRIBUTION: "투자금 추가", DEBT_DRAW: "대출 실행", DEBT_PRINCIPAL_REPAYMENT: "대출 원금 상환", DEBT_INTEREST: "대출 이자 납부", SAVINGS_MATURITY: "예·적금 만기" }[type] ?? type); }
+function eventDescription(type: string) { return ({ INCOME: "외부에서 계좌로 돈이 들어오는 사건입니다.", EXPENSE: "계좌에서 외부로 돈이 나가는 사건입니다.", TRANSFER: "내 계좌 사이에서 돈을 이동하는 사건입니다.", INVESTMENT_CONTRIBUTION: "입출금 계좌에서 투자 계좌로 돈을 옮깁니다.", DEBT_DRAW: "대출이 실행되어 현금이 들어오는 사건입니다.", DEBT_PRINCIPAL_REPAYMENT: "입출금 계좌에서 대출 원금을 갚는 사건입니다.", DEBT_INTEREST: "입출금 계좌에서 대출 이자를 납부하는 사건입니다.", SAVINGS_MATURITY: "저축 계좌가 만기되어 입출금 계좌로 받는 사건입니다." }[type] ?? ""); }

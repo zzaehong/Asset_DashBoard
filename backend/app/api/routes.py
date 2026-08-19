@@ -33,9 +33,11 @@ def event_response(row: EventRow) -> EventResponse:
 
 
 def validate_event_payload(payload: EventPayload, repo: PlannerRepository, event_id: str) -> None:
+    if payload.event_date is None:
+        raise HTTPException(422, "Event date is required.")
     candidate = Event(
         id=event_id,
-        month=payload.month,
+        month=payload.month or payload.event_date.replace(day=1),
         name=payload.name,
         amount=payload.amount,
         type=payload.type,
@@ -69,7 +71,7 @@ def create_account(payload: AccountPayload, session: Session = Depends(get_sessi
     repo = PlannerRepository(session)
     existing = repo.list_accounts()
     if existing and any(account.as_of_date != payload.as_of_date for account in existing):
-        raise HTTPException(422, "All active accounts must use the same as_of_date.")
+        raise HTTPException(422, "All accounts must use the same as_of_date.")
     row = repo.save_account(AccountRow(id=str(uuid4()), **payload.model_dump()))
     return account_response(row)
 
@@ -81,7 +83,7 @@ def update_account(account_id: str, payload: AccountPayload, session: Session = 
     if not row:
         raise HTTPException(404, "Account not found.")
     if any(account.id != account_id and account.as_of_date != payload.as_of_date for account in repo.list_accounts()):
-        raise HTTPException(422, "All active accounts must use the same as_of_date.")
+        raise HTTPException(422, "All accounts must use the same as_of_date.")
     for key, value in payload.model_dump().items():
         setattr(row, key, value)
     return account_response(repo.save_account(row))
@@ -89,8 +91,13 @@ def update_account(account_id: str, payload: AccountPayload, session: Session = 
 
 @router.delete("/accounts/{account_id}", status_code=204)
 def delete_account(account_id: str, session: Session = Depends(get_session)) -> None:
-    if not PlannerRepository(session).delete_account(account_id):
+    repo = PlannerRepository(session)
+    row = repo.get_account(account_id)
+    if not row:
         raise HTTPException(404, "Account not found.")
+    if repo.count_account_events(account_id) > 0:
+        raise HTTPException(409, "Accounts with linked events cannot be deleted.")
+    repo.delete_account(account_id)
 
 
 @router.get("/events", response_model=list[EventResponse])
@@ -104,7 +111,9 @@ def create_event(payload: EventPayload, session: Session = Depends(get_session))
     repo = PlannerRepository(session)
     event_id = str(uuid4())
     validate_event_payload(payload, repo, event_id)
-    row = repo.save_event(EventRow(id=event_id, **payload.model_dump()))
+    values = payload.model_dump()
+    values["month"] = payload.month or payload.event_date.replace(day=1)
+    row = repo.save_event(EventRow(id=event_id, **values))
     return event_response(row)
 
 
@@ -115,7 +124,9 @@ def update_event(event_id: str, payload: EventPayload, session: Session = Depend
     if not row:
         raise HTTPException(404, "Event not found.")
     validate_event_payload(payload, repo, event_id)
-    for key, value in payload.model_dump().items():
+    values = payload.model_dump()
+    values["month"] = payload.month or payload.event_date.replace(day=1)
+    for key, value in values.items():
         setattr(row, key, value)
     return event_response(repo.save_event(row))
 

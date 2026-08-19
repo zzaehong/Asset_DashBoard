@@ -51,7 +51,7 @@ def validate_accounts(accounts: Iterable[Account]) -> dict[str, Account]:
         raise DomainValidationError("At least one account is required.")
     as_of_dates = {account.as_of_date for account in by_id.values()}
     if len(as_of_dates) != 1:
-        raise DomainValidationError("All active accounts must share the same as_of_date.")
+        raise DomainValidationError("All accounts must share the same as_of_date.")
     if len(by_id) != len(account_list):
         raise DomainValidationError("Account ids must be unique.")
     return by_id
