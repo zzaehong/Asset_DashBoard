@@ -57,7 +57,40 @@ form > button { grid-column: 1 / -1; }
 .guide-list li { border-top: 1px solid #edf1ee; padding: 12px 0; display: flex; flex-direction: column; gap: 4px; }
 .guide-list span { color: #65736f; font-size: .85rem; }
 .timeline li { display: flex; gap: 16px; border-top: 1px solid #edf1ee; padding: 11px 0; }
+.timeline { max-height: 320px; overflow-y: auto; padding-right: 8px; overscroll-behavior: contain; }
+.dashboard-grid .timeline { max-height: 280px; }
 .timeline time { color: #65736f; font-variant-numeric: tabular-nums; min-width: 86px; }
 .timeline div { display: flex; flex-direction: column; gap: 3px; }
+.timeline .row-actions { flex-direction: row; }
 .timeline span { color: #65736f; font-size: .84rem; }
-@media (max-width: 720px) { .app-header, .metrics, .grid, .page-grid { flex-direction: column; } .app-header { align-items: stretch; } form { grid-template-columns: 1fr; } .nav { overflow-x: auto; } }
+@media (max-width: 720px) {
+  main { padding: 24px 12px 40px; }
+  h1 { font-size: 1.55rem; }
+  .app-header, .grid, .page-grid { flex-direction: column; }
+  .app-header { align-items: stretch; }
+  .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metric:last-child { grid-column: 1 / -1; }
+  .metric, .panel { padding: 16px; }
+  .chart { height: 290px; }
+  form { grid-template-columns: 1fr; }
+  .nav { overflow-x: auto; }
+  .nav button { flex: 1; white-space: nowrap; }
+  .heading-row { align-items: flex-start; }
+  .heading-actions { flex-shrink: 0; }
+  .heading-actions button { max-width: 150px; }
+  .account-list li { align-items: flex-start; }
+  .account-list li > div { min-width: 0; }
+  .account-list li span, .account-list li small { overflow-wrap: anywhere; }
+  .timeline { max-height: 260px; }
+  .timeline li { gap: 8px; flex-wrap: wrap; }
+  .timeline time { min-width: 78px; }
+  .timeline li > div:nth-child(2) { flex: 1; min-width: 140px; }
+  .timeline .row-actions { width: 100%; justify-content: flex-end; margin-left: 86px; }
+}
+@media (max-width: 420px) {
+  .metrics { display: flex; flex-direction: column; }
+  .metric:last-child { grid-column: auto; }
+  .heading-row { flex-direction: column; }
+  .heading-actions, .heading-actions button { width: 100%; max-width: none; }
+  .timeline .row-actions { margin-left: 0; }
+}
