@@ -20,6 +20,7 @@ export default function App() {
   const forecast = useQuery({ queryKey: ["forecast", period], queryFn: () => api.forecast(period) });
   const refresh = () => queryClient.invalidateQueries();
   const createAccount = useMutation({ mutationFn: api.createAccount, onSuccess: refresh });
+  const updateAccount = useMutation({ mutationFn: ({ id, payload }: { id: string; payload: Omit<Account, "id"> }) => api.updateAccount(id, payload), onSuccess: refresh });
   const createEvent = useMutation({ mutationFn: api.createEvent, onSuccess: refresh });
   const updateEvent = useMutation({ mutationFn: ({ id, payload }: { id: string; payload: Omit<Event, "id"> }) => api.updateEvent(id, payload), onSuccess: refresh });
   const deleteEvent = useMutation({ mutationFn: api.deleteEvent, onSuccess: refresh });
@@ -45,7 +46,7 @@ export default function App() {
       </nav>
 
       {page === "dashboard" && <Dashboard accounts={accountList} events={orderedEvents} chartData={chartData} latest={latest} risks={forecast.data?.risks ?? []} forecastError={forecast.isError} onAddAccount={() => setPage("accounts")} onManageEvents={() => setPage("events")} onDeleteAccount={(id) => deleteAccount.mutate(id)} />}
-      {page === "accounts" && <AccountsPage accounts={accountList} events={orderedEvents} onSubmit={(payload) => createAccount.mutate(payload)} onDelete={(id) => deleteAccount.mutate(id)} />}
+      {page === "accounts" && <AccountsPage accounts={accountList} events={orderedEvents} onCreate={(payload) => createAccount.mutate(payload)} onUpdate={(id, payload) => updateAccount.mutate({ id, payload })} onDelete={(id) => deleteAccount.mutate(id)} />}
       {page === "events" && <EventsPage accounts={accountList} events={orderedEvents} onCreate={(payload) => createEvent.mutate(payload)} onUpdate={(id, payload) => updateEvent.mutate({ id, payload })} onDelete={(id) => deleteEvent.mutate(id)} />}
     </main>
   );
@@ -67,8 +68,9 @@ function Dashboard({ accounts, events, chartData, latest, risks, forecastError, 
   </>;
 }
 
-function AccountsPage({ accounts, events, onSubmit, onDelete }: { accounts: Account[]; events: Event[]; onSubmit: (payload: Omit<Account, "id">) => void; onDelete: (id: string) => void }) {
-  return <section className="page-grid"><div className="panel form-panel"><SectionHeading title="계좌 추가" description="현재 보유한 자산과 부채를 계좌 단위로 등록하세요. 모든 계좌는 같은 현재 상태 기준일을 사용해야 합니다." /><AccountForm onSubmit={onSubmit} /></div><div className="panel"><SectionHeading title="등록된 계좌" description="초기 잔액과 관계없이, 연결된 이벤트가 없는 계좌만 삭제할 수 있습니다." /><AccountList accounts={accounts} events={events} onDelete={onDelete} /></div></section>;
+function AccountsPage({ accounts, events, onCreate, onUpdate, onDelete }: { accounts: Account[]; events: Event[]; onCreate: (payload: Omit<Account, "id">) => void; onUpdate: (id: string, payload: Omit<Account, "id">) => void; onDelete: (id: string) => void }) {
+  const [editing, setEditing] = useState<Account | undefined>();
+  return <section className="page-grid"><div className="panel form-panel"><SectionHeading title={editing ? "계좌 수정" : "계좌 추가"} description="현재 보유한 자산과 부채를 계좌 단위로 등록하세요. 모든 계좌는 같은 현재 상태 기준일을 사용해야 합니다." /><AccountForm key={editing?.id ?? "new"} initial={editing} submitLabel={editing ? "변경 저장" : "계좌 추가"} onSubmit={(payload) => { if (editing) { onUpdate(editing.id, payload); setEditing(undefined); } else onCreate(payload); }} onCancel={editing ? () => setEditing(undefined) : undefined} /></div><div className="panel"><SectionHeading title="등록된 계좌" description="계좌 정보를 수정할 수 있으며, 연결된 이벤트가 없는 계좌만 삭제할 수 있습니다." /><AccountList accounts={accounts} events={events} onEdit={setEditing} onDelete={onDelete} /></div></section>;
 }
 
 function EventsPage({ accounts, events, onCreate, onUpdate, onDelete }: { accounts: Account[]; events: Event[]; onCreate: (payload: Omit<Event, "id">) => void; onUpdate: (id: string, payload: Omit<Event, "id">) => void; onDelete: (id: string) => void }) {
@@ -81,18 +83,18 @@ function SectionHeading({ title, description, actions }: { title: string; descri
 function Error() { return <p className="error">예측 결과를 불러오지 못했습니다. 먼저 동일 기준일의 계좌를 등록해 주세요.</p>; }
 function List<T>({ rows, render }: { rows?: T[]; render: (item: T) => ReactNode }) { return <ul className="list">{rows?.length ? rows.map((row, index) => <li key={index}>{render(row)}</li>) : <li className="muted">등록된 항목이 없습니다.</li>}</ul>; }
 function EventTimeline({ events, onEdit, onDelete }: { events: Event[]; onEdit?: (item: Event) => void; onDelete?: (id: string) => void }) { return events.length ? <ol className="timeline">{events.map((item) => <li key={item.id}><time>{eventDate(item)}</time><div><strong>{item.name}</strong><span>{eventLabel(item.type)} · {formatMoney(item.amount)}</span></div>{onEdit && onDelete && <div className="row-actions"><button className="secondary" onClick={() => onEdit(item)}>수정</button><button className="danger-button" onClick={() => { if (window.confirm("이 이벤트를 삭제할까요?")) onDelete(item.id); }}>삭제</button></div>}</li>)}</ol> : <p className="muted">등록된 이벤트가 없습니다.</p>; }
-function AccountList({ accounts, events, projectedBalances, onDelete }: { accounts: Account[]; events: Event[]; projectedBalances?: Record<string, string>; onDelete: (id: string) => void }) { return accounts.length ? <ul className="account-list">{accounts.map((item) => { const projected = projectedBalances?.[item.id]; const linkedEvents = events.filter((event) => event.source_account_id === item.id || event.destination_account_id === item.id).length; return <li key={item.id}><div><strong>{item.name}</strong><span>{accountLabel(item.type)} · {projected === undefined ? `현재 ${formatMoney(item.current_balance)}` : `예상 ${formatMoney(projected)}`}</span>{projected !== undefined && Number(projected) !== Number(item.current_balance) && <small>현재 기준 {formatMoney(item.current_balance)}</small>}</div><button className="danger-button" onClick={() => { if (linkedEvents > 0) { window.alert(`연결된 이벤트가 ${linkedEvents}개 있어 삭제할 수 없습니다. 이벤트를 먼저 삭제하거나 계좌 연결을 해제하세요.`); return; } if (window.confirm("이 계좌를 삭제할까요? 초기 잔액은 삭제 가능 여부에 영향을 주지 않습니다.")) onDelete(item.id); }}>삭제</button></li>; })}</ul> : <p className="muted">등록된 계좌가 없습니다.</p>; }
+function AccountList({ accounts, events, projectedBalances, onEdit, onDelete }: { accounts: Account[]; events: Event[]; projectedBalances?: Record<string, string>; onEdit?: (item: Account) => void; onDelete: (id: string) => void }) { return accounts.length ? <ul className="account-list">{accounts.map((item) => { const projected = projectedBalances?.[item.id]; const linkedEvents = events.filter((event) => event.source_account_id === item.id || event.destination_account_id === item.id).length; return <li key={item.id}><div><strong>{item.name}</strong><span>{accountLabel(item.type)} · {projected === undefined ? `현재 ${formatMoney(item.current_balance)}` : `예상 ${formatMoney(projected)}`}</span>{projected !== undefined && Number(projected) !== Number(item.current_balance) && <small>현재 기준 {formatMoney(item.current_balance)}</small>}</div><div className="row-actions">{onEdit && <button className="secondary" onClick={() => onEdit(item)}>수정</button>}<button className="danger-button" onClick={() => { if (linkedEvents > 0) { window.alert(`연결된 이벤트가 ${linkedEvents}개 있어 삭제할 수 없습니다. 이벤트를 먼저 삭제하거나 계좌 연결을 해제하세요.`); return; } if (window.confirm("이 계좌를 삭제할까요? 초기 잔액은 삭제 가능 여부에 영향을 주지 않습니다.")) onDelete(item.id); }}>삭제</button></div></li>; })}</ul> : <p className="muted">등록된 계좌가 없습니다.</p>; }
 
-function AccountForm({ onSubmit }: { onSubmit: (payload: Omit<Account, "id">) => void }) {
-  const [type, setType] = useState<AccountType>("CASH");
-  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); onSubmit({ name: String(data.get("name")), type, current_balance: String(data.get("balance")), as_of_date: String(data.get("asOf")), currency: "KRW", liquidity: "LIQUID", emergency_fund_eligible: Boolean(data.get("emergency")) }); event.currentTarget.reset(); setType("CASH"); }
+function AccountForm({ initial, submitLabel = "계좌 추가", onSubmit, onCancel }: { initial?: Account; submitLabel?: string; onSubmit: (payload: Omit<Account, "id">) => void; onCancel?: () => void }) {
+  const [type, setType] = useState<AccountType>(initial?.type ?? "CASH");
+  function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); onSubmit({ name: String(data.get("name")), type, current_balance: String(data.get("balance")), as_of_date: String(data.get("asOf")), currency: initial?.currency ?? "KRW", liquidity: initial?.liquidity ?? "LIQUID", emergency_fund_eligible: Boolean(data.get("emergency")) }); event.currentTarget.reset(); setType("CASH"); }
   return <form onSubmit={submit}>
-    <label>계좌 이름<input name="name" placeholder="예: 생활비 통장" required /><small>사용자가 알아보기 쉬운 이름을 입력하세요.</small></label>
+    <label>계좌 이름<input name="name" defaultValue={initial?.name} placeholder="예: 생활비 통장" required /><small>사용자가 알아보기 쉬운 이름을 입력하세요.</small></label>
     <label>계좌 종류<select value={type} onChange={(event) => setType(event.target.value as AccountType)}>{(["CASH", "SAVINGS", "INVESTMENT", "DEBT", "OTHER_ASSET"] as AccountType[]).map((item) => <option key={item} value={item}>{accountLabel(item)}</option>)}</select><small>{accountDescription(type)}</small></label>
-    <label>현재 잔액 (KRW)<input name="balance" type="number" min="0" placeholder="예: 3000000" required /><small>기준일 현재 계좌에 있는 금액입니다. 부채는 남은 상환액을 입력합니다.</small></label>
-    <label>현재 상태 기준일<input name="asOf" type="date" defaultValue={today} required /><small>이 날짜의 잔액을 시작점으로 미래를 계산합니다. 모든 계좌가 같은 날짜를 사용해야 합니다.</small></label>
-    <label className="check-label"><input name="emergency" type="checkbox" /> 비상시에 쓸 돈으로 표시<small>예상치 못한 지출이 생겼을 때 사용할 수 있는 돈으로 계산합니다.</small></label>
-    <button>계좌 추가</button>
+    <label>현재 잔액 (KRW)<input name="balance" defaultValue={initial?.current_balance} type="number" min="0" placeholder="예: 3000000" required /><small>기준일 현재 계좌에 있는 금액입니다. 부채는 남은 상환액을 입력합니다.</small></label>
+    <label>현재 상태 기준일<input name="asOf" type="date" defaultValue={initial?.as_of_date ?? today} required /><small>이 날짜의 잔액을 시작점으로 미래를 계산합니다. 모든 계좌가 같은 날짜를 사용해야 합니다.</small></label>
+    <label className="check-label"><input name="emergency" type="checkbox" defaultChecked={initial?.emergency_fund_eligible} /> 비상시에 쓸 돈으로 표시<small>예상치 못한 지출이 생겼을 때 사용할 수 있는 돈으로 계산합니다.</small></label>
+    <div className="form-actions"><button>{submitLabel}</button>{onCancel && <button type="button" className="secondary" onClick={onCancel}>수정 취소</button>}</div>
   </form>;
 }
 
