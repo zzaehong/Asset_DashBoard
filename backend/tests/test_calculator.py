@@ -105,6 +105,22 @@ class CalculationEngineTests(TestCase):
         result = calculate_forecast([account("cash", AccountType.CASH, "100")], [cancelled], 3)
         self.assertEqual(result.months[1].cash, Decimal("100"))
 
+    def test_recurring_event_is_expanded_at_monthly_interval(self) -> None:
+        recurring_income = replace(
+            event("salary", EventType.INCOME, "100", destination="cash", when=date(2026, 8, 25)),
+            recurrence_months=1,
+            recurrence_until=date(2026, 10, 25),
+        )
+        result = calculate_forecast(
+            [account("cash", AccountType.CASH, "100")],
+            [recurring_income],
+            6,
+        )
+        self.assertEqual(result.months[1].cash, Decimal("200"))
+        self.assertEqual(result.months[2].cash, Decimal("300"))
+        self.assertEqual(result.months[3].cash, Decimal("400"))
+        self.assertEqual(result.months[-1].cash, Decimal("400"))
+
     def test_all_accounts_need_same_as_of_date(self) -> None:
         mismatched = Account("savings", "savings", AccountType.SAVINGS, Decimal("0"), date(2026, 8, 2))
         with self.assertRaises(DomainValidationError):

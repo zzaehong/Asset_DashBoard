@@ -21,6 +21,9 @@ export type Event = {
   status: string;
   source_account_id: string | null;
   destination_account_id: string | null;
+  recurrence_months: number | null;
+  recurrence_until: string | null;
+  note: string | null;
 };
 
 export type ForecastMonth = {
