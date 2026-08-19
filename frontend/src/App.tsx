@@ -3,13 +3,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { Account, AccountType, api, Event } from "./lib/api";
+import { occurrenceDateForMonth, shiftMonth } from "./lib/recurrence";
 
 const currency = new Intl.NumberFormat("ko-KR", { style: "currency", currency: "KRW", maximumFractionDigits: 0 });
 const formatMoney = (value: string | number) => currency.format(Number(value));
 const today = new Date().toISOString().slice(0, 10);
 const currentMonth = today.slice(0, 7);
 
-type Page = "dashboard" | "accounts" | "events";
+type Page = "dashboard" | "monthly" | "accounts" | "events";
 
 export default function App() {
   const queryClient = useQueryClient();
@@ -41,15 +42,27 @@ export default function App() {
       </header>
       <nav className="nav" aria-label="주 메뉴">
         <button className={page === "dashboard" ? "active" : "quiet"} onClick={() => setPage("dashboard")}>대시보드</button>
+        <button className={page === "monthly" ? "active" : "quiet"} onClick={() => setPage("monthly")}>월별 계획</button>
         <button className={page === "accounts" ? "active" : "quiet"} onClick={() => setPage("accounts")}>계좌 관리</button>
-        <button className={page === "events" ? "active" : "quiet"} onClick={() => setPage("events")}>이벤트 추가</button>
+        <button className={page === "events" ? "active" : "quiet"} onClick={() => setPage("events")}>이벤트 관리</button>
       </nav>
 
       {page === "dashboard" && <Dashboard accounts={accountList} events={orderedEvents} chartData={chartData} latest={latest} risks={forecast.data?.risks ?? []} forecastError={forecast.isError} onAddAccount={() => setPage("accounts")} onManageEvents={() => setPage("events")} onDeleteAccount={(id) => deleteAccount.mutate(id)} />}
+      {page === "monthly" && <MonthlyPlanPage events={orderedEvents} onManageEvents={() => setPage("events")} />}
       {page === "accounts" && <AccountsPage accounts={accountList} events={orderedEvents} onCreate={(payload) => createAccount.mutate(payload)} onUpdate={(id, payload) => updateAccount.mutate({ id, payload })} onDelete={(id) => deleteAccount.mutate(id)} />}
       {page === "events" && <EventsPage accounts={accountList} events={orderedEvents} onCreate={(payload) => createEvent.mutate(payload)} onUpdate={(id, payload) => updateEvent.mutate({ id, payload })} onDelete={(id) => deleteEvent.mutate(id)} />}
     </main>
   );
+}
+
+function MonthlyPlanPage({ events, onManageEvents }: { events: Event[]; onManageEvents: () => void }) {
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
+  const monthlyEvents = useMemo(() => events.flatMap((item) => {
+    const occurrenceDate = occurrenceDateForMonth(eventDate(item), item.recurrence_months, item.recurrence_until, selectedMonth);
+    return occurrenceDate ? [{ ...item, id: `${item.id}:${occurrenceDate}`, event_date: occurrenceDate }] : [];
+  }).sort((a, b) => eventDate(a).localeCompare(eventDate(b))), [events, selectedMonth]);
+
+  return <section className="panel monthly-plan"><SectionHeading title="월별 계획" description="선택한 달의 일회성 이벤트와 반복 이벤트 발생분을 날짜순으로 확인합니다." actions={<button onClick={onManageEvents}>이벤트 추가·수정</button>} /><div className="month-controls"><button className="secondary" onClick={() => setSelectedMonth(shiftMonth(selectedMonth, -1))}>이전 달</button><label>계획 월<input type="month" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)} /></label><button className="secondary" onClick={() => setSelectedMonth(shiftMonth(selectedMonth, 1))}>다음 달</button></div><div className="month-summary"><strong>{selectedMonth}</strong><span>예정된 이벤트 {monthlyEvents.length}건</span></div><EventTimeline events={monthlyEvents} /></section>;
 }
 
 function Dashboard({ accounts, events, chartData, latest, risks, forecastError, onAddAccount, onManageEvents, onDeleteAccount }: { accounts: Account[]; events: Event[]; chartData: { month: string; cash: number; netWorth: number }[]; latest?: { balances: Record<string, string>; cash: string; net_worth: string }; risks: { type: string; date: string; cash_balance: string }[]; forecastError: boolean; onAddAccount: () => void; onManageEvents: () => void; onDeleteAccount: (id: string) => void }) {
