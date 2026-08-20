@@ -1,6 +1,5 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Area, AreaChart, CartesianGrid, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { Account, AccountType, api, Event } from "./lib/api";
 import { occurrenceDateForMonth, shiftMonth } from "./lib/recurrence";
@@ -130,31 +129,52 @@ function Dashboard({ accounts, events, chartData, latest, risks, forecastError, 
 
 function ForecastChart({ data, hasError }: { data: ChartPoint[]; hasError: boolean }) {
   const [metric, setMetric] = useState<ChartMetric>("cash");
+  const [activeIndex, setActiveIndex] = useState<number>();
   const label = metric === "cash" ? "현금" : "순자산";
   const color = metric === "cash" ? "#d96545" : "#216e67";
-  const gradientId = metric === "cash" ? "cash-gradient" : "net-worth-gradient";
   const first = data[0];
   const last = data.at(-1);
   const change = first && last ? last[metric] - first[metric] : 0;
   const lowest = data.length ? data.reduce((minimum, item) => item[metric] < minimum[metric] ? item : minimum) : undefined;
   const range = first && last ? `${formatChartMonth(first.month, true)} – ${formatChartMonth(last.month, true)}` : "분석 기간";
+  const selectMetric = (nextMetric: ChartMetric) => { setMetric(nextMetric); setActiveIndex(undefined); };
 
   return <section className={`panel chart finance-chart ${metric}`}>
-    <div className="chart-header"><div><p className="eyebrow">{range}</p><h2>{label} 흐름</h2><p className="chart-description">월말 예상 금액의 변화를 보여줍니다.</p></div><div className="chart-switcher" aria-label="그래프 지표 선택"><button className={metric === "cash" ? "active" : "secondary"} aria-pressed={metric === "cash"} onClick={() => setMetric("cash")}>현금</button><button className={metric === "netWorth" ? "active" : "secondary"} aria-pressed={metric === "netWorth"} onClick={() => setMetric("netWorth")}>순자산</button></div></div>
-    {hasError ? <Error /> : <><div className="chart-summary"><div><span>기간 말 예상</span><strong>{formatMoney(last?.[metric] ?? 0)}</strong></div><div className={change < 0 ? "negative" : "positive"}><span>시작 대비</span><strong>{change > 0 ? "+" : ""}{formatMoney(change)}</strong></div><div><span>최저 예상</span><strong>{formatMoney(lowest?.[metric] ?? 0)}</strong><small>{lowest ? formatChartMonth(lowest.month, true) : "-"}</small></div></div><div className="chart-visual"><ResponsiveContainer width="100%" height="100%"><AreaChart data={data} margin={{ top: 14, right: 12, bottom: 0, left: 0 }}><defs><linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity={0.28} /><stop offset="100%" stopColor={color} stopOpacity={0.02} /></linearGradient></defs><CartesianGrid vertical={false} stroke="#e5ece8" strokeDasharray="3 5" /><XAxis dataKey="month" axisLine={false} tickLine={false} minTickGap={28} tick={{ fontSize: 11, fill: "#71807b" }} tickFormatter={(value) => formatChartMonth(String(value))} /><YAxis width={54} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#71807b" }} tickFormatter={formatChartAxis} />{metric === "cash" && <ReferenceLine y={0} stroke="#b8422f" strokeDasharray="5 5" label={{ value: "0원", position: "insideBottomLeft", fill: "#b8422f", fontSize: 11 }} />}<Tooltip cursor={{ stroke: "#9aaba5", strokeDasharray: "3 3" }} content={<ForecastTooltip metric={metric} />} /><Area type="linear" dataKey={metric} name={label} stroke={color} strokeWidth={3} fill={`url(#${gradientId})`} dot={<EventDot color={color} />} activeDot={{ r: 6, strokeWidth: 3, fill: "white" }} />{lowest && <ReferenceDot x={lowest.month} y={lowest[metric]} r={5} fill="white" stroke={color} strokeWidth={3} />}</AreaChart></ResponsiveContainer></div></>}
+    <div className="chart-header"><div><p className="eyebrow">{range}</p><h2>{label} 흐름</h2><p className="chart-description">월말 예상 금액의 변화를 보여줍니다.</p></div><div className="chart-switcher" aria-label="그래프 지표 선택"><button className={metric === "cash" ? "active" : "secondary"} aria-pressed={metric === "cash"} onClick={() => selectMetric("cash")}>현금</button><button className={metric === "netWorth" ? "active" : "secondary"} aria-pressed={metric === "netWorth"} onClick={() => selectMetric("netWorth")}>순자산</button></div></div>
+    {hasError ? <Error /> : <><div className="chart-summary"><div><span>기간 말 예상</span><strong>{formatMoney(last?.[metric] ?? 0)}</strong></div><div className={change < 0 ? "negative" : "positive"}><span>시작 대비</span><strong>{change > 0 ? "+" : ""}{formatMoney(change)}</strong></div><div><span>최저 예상</span><strong>{formatMoney(lowest?.[metric] ?? 0)}</strong><small>{lowest ? formatChartMonth(lowest.month, true) : "-"}</small></div></div><LightweightChart data={data} metric={metric} color={color} activeIndex={activeIndex} onActivate={setActiveIndex} /></>}
   </section>;
 }
 
-function ForecastTooltip({ active, payload, label, metric }: { active?: boolean; payload?: readonly { payload?: ChartPoint }[]; label?: string | number; metric: ChartMetric }) {
-  const point = payload?.[0]?.payload;
-  if (!active || !point) return null;
-  const change = metric === "cash" ? point.cashChange : point.netWorthChange;
-  return <div className="chart-tooltip"><strong>{formatChartMonth(String(label), true)}</strong><div><span>{metric === "cash" ? "현금" : "순자산"}</span><b>{formatMoney(point[metric])}</b></div><div className={change < 0 ? "negative" : "positive"}><span>전월 대비</span><b>{change > 0 ? "+" : ""}{formatMoney(change)}</b></div>{point.eventCount > 0 && <div className="event-count"><span>예정 이벤트</span><b>{point.eventCount}건</b></div>}</div>;
+function LightweightChart({ data, metric, color, activeIndex, onActivate }: { data: ChartPoint[]; metric: ChartMetric; color: string; activeIndex?: number; onActivate: (index?: number) => void }) {
+  const width = 900;
+  const height = 250;
+  const padding = { top: 16, right: 18, bottom: 30, left: 64 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const values = data.map((item) => item[metric]);
+  const domainValues = metric === "cash" ? [...values, 0] : values;
+  const rawMin = Math.min(...domainValues, 0);
+  const rawMax = Math.max(...domainValues, 0);
+  const span = rawMax - rawMin || Math.max(Math.abs(rawMax), 1);
+  const min = rawMin - span * 0.08;
+  const max = rawMax + span * 0.08;
+  const x = (index: number) => data.length <= 1 ? padding.left + plotWidth / 2 : padding.left + (index / (data.length - 1)) * plotWidth;
+  const y = (value: number) => padding.top + ((max - value) / (max - min)) * plotHeight;
+  const points = data.map((item, index) => ({ item, index, x: x(index), y: y(item[metric]) }));
+  const linePath = points.map((point, index) => `${index ? "L" : "M"}${point.x},${point.y}`).join(" ");
+  const areaPath = points.length ? `${linePath} L${points.at(-1)?.x},${padding.top + plotHeight} L${points[0].x},${padding.top + plotHeight} Z` : "";
+  const ticks = Array.from({ length: 5 }, (_, index) => min + ((max - min) * index) / 4);
+  const lowestValue = values.length ? Math.min(...values) : undefined;
+  const labelStep = Math.max(1, Math.ceil(data.length / 6));
+  const active = activeIndex === undefined ? undefined : points[activeIndex];
+  const gradientId = `chart-gradient-${metric}`;
+
+  return <div className="chart-visual" onMouseLeave={() => onActivate(undefined)}><svg className="chart-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${metric === "cash" ? "현금" : "순자산"} 월별 예상 흐름`}><defs><linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity="0.28" /><stop offset="100%" stopColor={color} stopOpacity="0.02" /></linearGradient></defs>{ticks.map((tick) => <g key={tick}><line className="chart-grid-line" x1={padding.left} x2={width - padding.right} y1={y(tick)} y2={y(tick)} /><text className="chart-axis-label" x={padding.left - 10} y={y(tick) + 4} textAnchor="end">{formatChartAxis(tick)}</text></g>)}{metric === "cash" && min <= 0 && max >= 0 && <g><line className="chart-zero-line" x1={padding.left} x2={width - padding.right} y1={y(0)} y2={y(0)} /><text className="chart-zero-label" x={padding.left + 4} y={y(0) - 6}>0원</text></g>}<path d={areaPath} fill={`url(#${gradientId})`} /><path className="chart-line" d={linePath} stroke={color} />{points.map((point) => <g key={point.item.month}><circle className="chart-point-hit" cx={point.x} cy={point.y} r="14" tabIndex={0} role="button" aria-label={`${formatChartMonth(point.item.month, true)} ${formatMoney(point.item[metric])}${point.item.eventCount ? `, 이벤트 ${point.item.eventCount}건` : ""}`} onMouseEnter={() => onActivate(point.index)} onFocus={() => onActivate(point.index)} onBlur={() => onActivate(undefined)} onClick={() => onActivate(point.index)} />{point.item.eventCount > 0 && <circle className="chart-event-point" cx={point.x} cy={point.y} r="5" fill={color} />}{point.item[metric] === lowestValue && <circle className="chart-lowest-point" cx={point.x} cy={point.y} r="6" stroke={color} />}</g>)}{active && <g pointerEvents="none"><line className="chart-cursor-line" x1={active.x} x2={active.x} y1={padding.top} y2={padding.top + plotHeight} /><circle cx={active.x} cy={active.y} r="6" fill="white" stroke={color} strokeWidth="3" /></g>}{points.map((point) => (point.index % labelStep === 0 || point.index === points.length - 1) && <text key={`label-${point.item.month}`} className="chart-axis-label" x={point.x} y={height - 8} textAnchor="middle">{formatChartMonth(point.item.month)}</text>)}</svg>{active && <ChartTooltip point={active.item} metric={metric} left={`${Math.min(88, Math.max(12, (active.x / width) * 100))}%`} />}</div>;
 }
 
-function EventDot({ cx, cy, payload, color }: { cx?: number; cy?: number; payload?: ChartPoint; color: string }) {
-  if (cx === undefined || cy === undefined || !payload?.eventCount) return <g />;
-  return <circle cx={cx} cy={cy} r={5} fill={color} stroke="white" strokeWidth={2.5} />;
+function ChartTooltip({ point, metric, left }: { point: ChartPoint; metric: ChartMetric; left: string }) {
+  const change = metric === "cash" ? point.cashChange : point.netWorthChange;
+  return <div className="chart-tooltip" style={{ left }}><strong>{formatChartMonth(point.month, true)}</strong><div><span>{metric === "cash" ? "현금" : "순자산"}</span><b>{formatMoney(point[metric])}</b></div><div className={change < 0 ? "negative" : "positive"}><span>전월 대비</span><b>{change > 0 ? "+" : ""}{formatMoney(change)}</b></div>{point.eventCount > 0 && <div><span>예정 이벤트</span><b>{point.eventCount}건</b></div>}</div>;
 }
 
 function AccountsPage({ accounts, events, onBack, onCreate, onUpdate, onDelete }: { accounts: Account[]; events: Event[]; onBack: () => void; onCreate: (payload: Omit<Account, "id">) => void; onUpdate: (id: string, payload: Omit<Account, "id">) => void; onDelete: (id: string) => void }) {
