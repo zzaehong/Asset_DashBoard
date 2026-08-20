@@ -1,6 +1,6 @@
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, CartesianGrid, ReferenceDot, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { Account, AccountType, api, Event } from "./lib/api";
 import { occurrenceDateForMonth, shiftMonth } from "./lib/recurrence";
@@ -11,6 +11,8 @@ const today = new Date().toISOString().slice(0, 10);
 const currentMonth = today.slice(0, 7);
 
 type Page = "dashboard" | "monthly" | "accounts" | "events";
+type ChartMetric = "cash" | "netWorth";
+type ChartPoint = { month: string; cash: number; netWorth: number; cashChange: number; netWorthChange: number; eventCount: number };
 
 export default function App() {
   const queryClient = useQueryClient();
@@ -32,8 +34,13 @@ export default function App() {
   const orderedEvents = useMemo(() => [...(events.data ?? [])].sort((a, b) => eventDate(a).localeCompare(eventDate(b))), [events.data]);
 
   const latest = forecast.data?.months.at(-1);
-  const chartData = forecast.data?.months.map((item) => ({
-    month: item.month.slice(0, 7), cash: Number(item.cash), netWorth: Number(item.net_worth),
+  const chartData = forecast.data?.months.map((item, index, months) => ({
+    month: item.month.slice(0, 7),
+    cash: Number(item.cash),
+    netWorth: Number(item.net_worth),
+    cashChange: Number(item.cash) - Number(months[index - 1]?.cash ?? item.cash),
+    netWorthChange: Number(item.net_worth) - Number(months[index - 1]?.net_worth ?? item.net_worth),
+    eventCount: orderedEvents.filter((event) => occurrenceDateForMonth(eventDate(event), event.recurrence_months, event.recurrence_until, item.month.slice(0, 7))).length,
   })) ?? [];
   const accountList = accounts.data ?? [];
 
@@ -105,7 +112,7 @@ function MonthlyPlanPage({ events, onManageEvents }: { events: Event[]; onManage
   return <section className="panel monthly-plan"><SectionHeading title="월별 계획" description="선택한 달의 일회성 이벤트와 반복 이벤트 발생분을 날짜순으로 확인합니다." actions={<button onClick={onManageEvents}>이벤트 추가·수정</button>} /><div className="month-controls"><button className="secondary" onClick={() => setSelectedMonth(shiftMonth(selectedMonth, -1))}>이전 달</button><label>계획 월<input type="month" value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)} /></label><button className="secondary" onClick={() => setSelectedMonth(shiftMonth(selectedMonth, 1))}>다음 달</button></div><div className="month-summary"><strong>{selectedMonth}</strong><span>예정된 이벤트 {monthlyEvents.length}건</span></div><EventTimeline events={monthlyEvents} /></section>;
 }
 
-function Dashboard({ accounts, events, chartData, latest, risks, forecastError, onAddAccount, onManageEvents, onDeleteAccount }: { accounts: Account[]; events: Event[]; chartData: { month: string; cash: number; netWorth: number }[]; latest?: { balances: Record<string, string>; cash: string; net_worth: string }; risks: { type: string; date: string; cash_balance: string }[]; forecastError: boolean; onAddAccount: () => void; onManageEvents: () => void; onDeleteAccount: (id: string) => void }) {
+function Dashboard({ accounts, events, chartData, latest, risks, forecastError, onAddAccount, onManageEvents, onDeleteAccount }: { accounts: Account[]; events: Event[]; chartData: ChartPoint[]; latest?: { balances: Record<string, string>; cash: string; net_worth: string }; risks: { type: string; date: string; cash_balance: string }[]; forecastError: boolean; onAddAccount: () => void; onManageEvents: () => void; onDeleteAccount: (id: string) => void }) {
   return <>
     <section className={`panel risk-guard ${risks.length ? "has-risk" : "is-safe"}`}><SectionHeading title="Risk Guard" description="행동을 추천하지 않고, 현금 부족이 언제 발생하는지만 알려줍니다." />{risks.length ? <ul className="risks">{risks.map((risk, index) => <li key={`${risk.type}-${index}`}><strong>{risk.type === "CASH_SHORTAGE" ? "현금 부족" : "투자자금 이동 후 현금 부족"}</strong><span>{risk.date} · {formatMoney(risk.cash_balance)}</span></li>)}</ul> : <p className="muted">현재 선택한 기간에 감지된 현금 위험이 없습니다.</p>}</section>
     <section className="metrics">
@@ -113,12 +120,41 @@ function Dashboard({ accounts, events, chartData, latest, risks, forecastError, 
       <Metric title="기간 말 순자산" value={formatMoney(latest?.net_worth ?? "0")} />
       <Metric title="감지된 위험" value={`${risks.length}건`} danger={Boolean(risks.length)} />
     </section>
-    <section className="panel chart"><SectionHeading title="현금과 순자산 흐름" description="선택한 분석 기간 동안의 월별 예상 흐름입니다." />{forecastError ? <Error /> : <><div className="chart-legend" aria-hidden="true"><span className="cash">현금</span><span className="net-worth">순자산</span></div><div className="chart-visual"><ResponsiveContainer width="100%" height="100%"><LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}><XAxis dataKey="month" minTickGap={24} tick={{ fontSize: 11 }} /><YAxis width={52} tick={{ fontSize: 11 }} tickFormatter={(value) => `${Math.round(value / 10000)}만`} /><Tooltip formatter={(value) => formatMoney(value as number)} /><Line type="monotone" dataKey="cash" name="현금" stroke="#e36d4f" strokeWidth={2} dot={false} /><Line type="monotone" dataKey="netWorth" name="순자산" stroke="#216e67" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer></div></>}</section>
+    <ForecastChart data={chartData} hasError={forecastError} />
     <section className="grid dashboard-grid">
       <div className="panel"><SectionHeading title="계좌별 예상 잔액" description="선택한 분석 기간의 마지막 시점에 예상되는 계좌 잔액입니다." actions={<button onClick={onAddAccount}>계좌 추가</button>} /><AccountList accounts={accounts} events={events} projectedBalances={latest?.balances} onDelete={onDeleteAccount} /></div>
       <div className="panel"><SectionHeading title="이벤트 타임라인" description="등록한 재무 사건을 발생 예정일 순서로 보여줍니다." actions={<button onClick={onManageEvents}>이벤트 추가·수정하기</button>} /><EventTimeline events={events} /></div>
     </section>
   </>;
+}
+
+function ForecastChart({ data, hasError }: { data: ChartPoint[]; hasError: boolean }) {
+  const [metric, setMetric] = useState<ChartMetric>("cash");
+  const label = metric === "cash" ? "현금" : "순자산";
+  const color = metric === "cash" ? "#d96545" : "#216e67";
+  const gradientId = metric === "cash" ? "cash-gradient" : "net-worth-gradient";
+  const first = data[0];
+  const last = data.at(-1);
+  const change = first && last ? last[metric] - first[metric] : 0;
+  const lowest = data.length ? data.reduce((minimum, item) => item[metric] < minimum[metric] ? item : minimum) : undefined;
+  const range = first && last ? `${formatChartMonth(first.month, true)} – ${formatChartMonth(last.month, true)}` : "분석 기간";
+
+  return <section className={`panel chart finance-chart ${metric}`}>
+    <div className="chart-header"><div><p className="eyebrow">{range}</p><h2>{label} 흐름</h2><p className="chart-description">월말 예상 금액의 변화를 보여줍니다.</p></div><div className="chart-switcher" aria-label="그래프 지표 선택"><button className={metric === "cash" ? "active" : "secondary"} aria-pressed={metric === "cash"} onClick={() => setMetric("cash")}>현금</button><button className={metric === "netWorth" ? "active" : "secondary"} aria-pressed={metric === "netWorth"} onClick={() => setMetric("netWorth")}>순자산</button></div></div>
+    {hasError ? <Error /> : <><div className="chart-summary"><div><span>기간 말 예상</span><strong>{formatMoney(last?.[metric] ?? 0)}</strong></div><div className={change < 0 ? "negative" : "positive"}><span>시작 대비</span><strong>{change > 0 ? "+" : ""}{formatMoney(change)}</strong></div><div><span>최저 예상</span><strong>{formatMoney(lowest?.[metric] ?? 0)}</strong><small>{lowest ? formatChartMonth(lowest.month, true) : "-"}</small></div></div><div className="chart-visual"><ResponsiveContainer width="100%" height="100%"><AreaChart data={data} margin={{ top: 14, right: 12, bottom: 0, left: 0 }}><defs><linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity={0.28} /><stop offset="100%" stopColor={color} stopOpacity={0.02} /></linearGradient></defs><CartesianGrid vertical={false} stroke="#e5ece8" strokeDasharray="3 5" /><XAxis dataKey="month" axisLine={false} tickLine={false} minTickGap={28} tick={{ fontSize: 11, fill: "#71807b" }} tickFormatter={(value) => formatChartMonth(String(value))} /><YAxis width={54} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: "#71807b" }} tickFormatter={formatChartAxis} />{metric === "cash" && <ReferenceLine y={0} stroke="#b8422f" strokeDasharray="5 5" label={{ value: "0원", position: "insideBottomLeft", fill: "#b8422f", fontSize: 11 }} />}<Tooltip cursor={{ stroke: "#9aaba5", strokeDasharray: "3 3" }} content={<ForecastTooltip metric={metric} />} /><Area type="linear" dataKey={metric} name={label} stroke={color} strokeWidth={3} fill={`url(#${gradientId})`} dot={<EventDot color={color} />} activeDot={{ r: 6, strokeWidth: 3, fill: "white" }} />{lowest && <ReferenceDot x={lowest.month} y={lowest[metric]} r={5} fill="white" stroke={color} strokeWidth={3} />}</AreaChart></ResponsiveContainer></div></>}
+  </section>;
+}
+
+function ForecastTooltip({ active, payload, label, metric }: { active?: boolean; payload?: readonly { payload?: ChartPoint }[]; label?: string | number; metric: ChartMetric }) {
+  const point = payload?.[0]?.payload;
+  if (!active || !point) return null;
+  const change = metric === "cash" ? point.cashChange : point.netWorthChange;
+  return <div className="chart-tooltip"><strong>{formatChartMonth(String(label), true)}</strong><div><span>{metric === "cash" ? "현금" : "순자산"}</span><b>{formatMoney(point[metric])}</b></div><div className={change < 0 ? "negative" : "positive"}><span>전월 대비</span><b>{change > 0 ? "+" : ""}{formatMoney(change)}</b></div>{point.eventCount > 0 && <div className="event-count"><span>예정 이벤트</span><b>{point.eventCount}건</b></div>}</div>;
+}
+
+function EventDot({ cx, cy, payload, color }: { cx?: number; cy?: number; payload?: ChartPoint; color: string }) {
+  if (cx === undefined || cy === undefined || !payload?.eventCount) return <g />;
+  return <circle cx={cx} cy={cy} r={5} fill={color} stroke="white" strokeWidth={2.5} />;
 }
 
 function AccountsPage({ accounts, events, onBack, onCreate, onUpdate, onDelete }: { accounts: Account[]; events: Event[]; onBack: () => void; onCreate: (payload: Omit<Account, "id">) => void; onUpdate: (id: string, payload: Omit<Account, "id">) => void; onDelete: (id: string) => void }) {
@@ -183,6 +219,8 @@ function EventForm({ accounts, initial, submitLabel = "이벤트 추가", onSubm
 }
 
 function eventDate(item: Event) { return item.event_date ?? `${item.month.slice(0, 7)}-01`; }
+function formatChartMonth(month: string, includeYear = false) { const [year, monthNumber] = month.split("-"); return includeYear ? `${year}년 ${Number(monthNumber)}월` : `${Number(monthNumber)}월`; }
+function formatChartAxis(value: number) { const absolute = Math.abs(value); if (absolute >= 100000000) return `${Math.round(value / 100000000)}억`; if (absolute >= 10000) return `${Math.round(value / 10000)}만`; return new Intl.NumberFormat("ko-KR", { notation: "compact", maximumFractionDigits: 0 }).format(value); }
 function pageTitle(page: Page) { return ({ dashboard: "대시보드", monthly: "월별 계획", accounts: "계좌 관리", events: "이벤트 관리" }[page]); }
 function accountLabel(type: AccountType) { return ({ CASH: "입출금", SAVINGS: "저축", INVESTMENT: "투자", DEBT: "부채", OTHER_ASSET: "기타 자산" }[type]); }
 function accountDescription(type: AccountType) { return ({ CASH: "생활비·급여·비상금처럼 바로 사용할 수 있는 계좌", SAVINGS: "예금·적금처럼 저축 목적의 계좌", INVESTMENT: "주식·ETF·암호화폐 등 투자 계좌", DEBT: "대출처럼 상환해야 하는 부채 계좌", OTHER_ASSET: "보증금·차량처럼 계좌 외 자산" }[type]); }
