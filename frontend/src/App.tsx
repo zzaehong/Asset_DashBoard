@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -16,6 +16,8 @@ export default function App() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState<Page>("dashboard");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const drawerCloseButtonRef = useRef<HTMLButtonElement>(null);
   const [period, setPeriod] = useState(12);
   const accounts = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
   const events = useQuery({ queryKey: ["events"], queryFn: api.events });
@@ -37,12 +39,23 @@ export default function App() {
 
   useEffect(() => {
     if (!isMenuOpen) return;
+    drawerCloseButtonRef.current?.focus();
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsMenuOpen(false);
+      if (event.key === "Escape") closeMenu();
     };
     window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
   }, [isMenuOpen]);
+
+  const closeMenu = () => {
+    setIsMenuOpen(false);
+    window.setTimeout(() => menuButtonRef.current?.focus(), 0);
+  };
 
   const selectPage = (nextPage: Page) => {
     setPage(nextPage);
@@ -51,35 +64,35 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <button className={`drawer-backdrop ${isMenuOpen ? "open" : ""}`} aria-label="메뉴 닫기" tabIndex={isMenuOpen ? 0 : -1} onClick={() => setIsMenuOpen(false)} />
+      <button className={`drawer-backdrop ${isMenuOpen ? "open" : ""}`} aria-label="메뉴 닫기" tabIndex={isMenuOpen ? 0 : -1} onClick={closeMenu} />
       <aside className={`sidebar ${isMenuOpen ? "open" : ""}`} id="main-navigation" aria-label="주 메뉴">
-        <div className="sidebar-brand"><p className="eyebrow">개인용 MVP</p><strong>월간 자산 흐름 플래너</strong></div>
+        <div className="sidebar-brand"><div><p className="eyebrow">개인용 MVP</p><strong>월간 자산 흐름 플래너</strong></div><button ref={drawerCloseButtonRef} className="drawer-close" aria-label="메뉴 닫기" onClick={closeMenu}><span aria-hidden="true">×</span></button></div>
         <SidebarNav page={page} onSelect={selectPage} />
       </aside>
       <main className="app-content">
         <header className="app-header">
-          <button className="menu-button secondary" aria-label="메뉴 열기" aria-controls="main-navigation" aria-expanded={isMenuOpen} onClick={() => setIsMenuOpen(true)}><span aria-hidden="true">☰</span></button>
+          <button ref={menuButtonRef} className="menu-button secondary" aria-label="메뉴 열기" aria-controls="main-navigation" aria-expanded={isMenuOpen} onClick={() => setIsMenuOpen(true)}><span aria-hidden="true">☰</span></button>
           <div className="page-intro"><h1>{pageTitle(page)}</h1><p className="intro">앞으로 일어날 중요한 재무 사건을 입력하고, 현금과 순자산의 흐름을 확인하세요.</p></div>
           {page === "dashboard" && <label className="period-control">분석 기간<select value={period} onChange={(event) => setPeriod(Number(event.target.value))}>{[3, 6, 12].map((value) => <option key={value} value={value}>{value}개월</option>)}</select></label>}
         </header>
 
         {page === "dashboard" && <Dashboard accounts={accountList} events={orderedEvents} chartData={chartData} latest={latest} risks={forecast.data?.risks ?? []} forecastError={forecast.isError} onAddAccount={() => selectPage("accounts")} onManageEvents={() => selectPage("events")} onDeleteAccount={(id) => deleteAccount.mutate(id)} />}
         {page === "monthly" && <MonthlyPlanPage events={orderedEvents} onManageEvents={() => selectPage("events")} />}
-        {page === "accounts" && <AccountsPage accounts={accountList} events={orderedEvents} onCreate={(payload) => createAccount.mutate(payload)} onUpdate={(id, payload) => updateAccount.mutate({ id, payload })} onDelete={(id) => deleteAccount.mutate(id)} />}
-        {page === "events" && <EventsPage accounts={accountList} events={orderedEvents} onCreate={(payload) => createEvent.mutate(payload)} onUpdate={(id, payload) => updateEvent.mutate({ id, payload })} onDelete={(id) => deleteEvent.mutate(id)} />}
+        {page === "accounts" && <AccountsPage accounts={accountList} events={orderedEvents} onBack={() => selectPage("dashboard")} onCreate={(payload) => createAccount.mutate(payload)} onUpdate={(id, payload) => updateAccount.mutate({ id, payload })} onDelete={(id) => deleteAccount.mutate(id)} />}
+        {page === "events" && <EventsPage accounts={accountList} events={orderedEvents} onBack={() => selectPage("dashboard")} onCreate={(payload) => createEvent.mutate(payload)} onUpdate={(id, payload) => updateEvent.mutate({ id, payload })} onDelete={(id) => deleteEvent.mutate(id)} />}
       </main>
     </div>
   );
 }
 
 function SidebarNav({ page, onSelect }: { page: Page; onSelect: (page: Page) => void }) {
-  const items: { page: Page; label: string }[] = [
-    { page: "dashboard", label: "대시보드" },
-    { page: "monthly", label: "월별 계획" },
-    { page: "accounts", label: "계좌 관리" },
-    { page: "events", label: "이벤트 관리" },
+  const items: { page: Page; label: string; icon: string }[] = [
+    { page: "dashboard", label: "대시보드", icon: "▦" },
+    { page: "monthly", label: "월별 계획", icon: "□" },
+    { page: "accounts", label: "계좌 관리", icon: "₩" },
+    { page: "events", label: "이벤트 관리", icon: "+" },
   ];
-  return <nav className="nav">{items.map((item) => <button key={item.page} className={page === item.page ? "active" : "quiet"} aria-current={page === item.page ? "page" : undefined} onClick={() => onSelect(item.page)}>{item.label}</button>)}</nav>;
+  return <nav className="nav">{items.map((item) => <button key={item.page} className={page === item.page ? "active" : "quiet"} aria-current={page === item.page ? "page" : undefined} onClick={() => onSelect(item.page)}><span className="nav-icon" aria-hidden="true">{item.icon}</span>{item.label}</button>)}</nav>;
 }
 
 function MonthlyPlanPage({ events, onManageEvents }: { events: Event[]; onManageEvents: () => void }) {
@@ -100,7 +113,7 @@ function Dashboard({ accounts, events, chartData, latest, risks, forecastError, 
       <Metric title="기간 말 순자산" value={formatMoney(latest?.net_worth ?? "0")} />
       <Metric title="감지된 위험" value={`${risks.length}건`} danger={Boolean(risks.length)} />
     </section>
-    <section className="panel chart"><SectionHeading title="현금과 순자산 흐름" description="선택한 분석 기간 동안의 월별 예상 흐름입니다." />{forecastError ? <Error /> : <ResponsiveContainer width="100%" height={260}><LineChart data={chartData}><XAxis dataKey="month" /><YAxis tickFormatter={(value) => `${Math.round(value / 10000)}만`} /><Tooltip formatter={(value) => formatMoney(value as number)} /><Line type="monotone" dataKey="cash" name="현금" stroke="#e36d4f" strokeWidth={2} /><Line type="monotone" dataKey="netWorth" name="순자산" stroke="#216e67" strokeWidth={2} /></LineChart></ResponsiveContainer>}</section>
+    <section className="panel chart"><SectionHeading title="현금과 순자산 흐름" description="선택한 분석 기간 동안의 월별 예상 흐름입니다." />{forecastError ? <Error /> : <><div className="chart-legend" aria-hidden="true"><span className="cash">현금</span><span className="net-worth">순자산</span></div><div className="chart-visual"><ResponsiveContainer width="100%" height="100%"><LineChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}><XAxis dataKey="month" minTickGap={24} tick={{ fontSize: 11 }} /><YAxis width={52} tick={{ fontSize: 11 }} tickFormatter={(value) => `${Math.round(value / 10000)}만`} /><Tooltip formatter={(value) => formatMoney(value as number)} /><Line type="monotone" dataKey="cash" name="현금" stroke="#e36d4f" strokeWidth={2} dot={false} /><Line type="monotone" dataKey="netWorth" name="순자산" stroke="#216e67" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer></div></>}</section>
     <section className="grid dashboard-grid">
       <div className="panel"><SectionHeading title="계좌별 예상 잔액" description="선택한 분석 기간의 마지막 시점에 예상되는 계좌 잔액입니다." actions={<button onClick={onAddAccount}>계좌 추가</button>} /><AccountList accounts={accounts} events={events} projectedBalances={latest?.balances} onDelete={onDeleteAccount} /></div>
       <div className="panel"><SectionHeading title="이벤트 타임라인" description="등록한 재무 사건을 발생 예정일 순서로 보여줍니다." actions={<button onClick={onManageEvents}>이벤트 추가·수정하기</button>} /><EventTimeline events={events} /></div>
@@ -108,14 +121,24 @@ function Dashboard({ accounts, events, chartData, latest, risks, forecastError, 
   </>;
 }
 
-function AccountsPage({ accounts, events, onCreate, onUpdate, onDelete }: { accounts: Account[]; events: Event[]; onCreate: (payload: Omit<Account, "id">) => void; onUpdate: (id: string, payload: Omit<Account, "id">) => void; onDelete: (id: string) => void }) {
+function AccountsPage({ accounts, events, onBack, onCreate, onUpdate, onDelete }: { accounts: Account[]; events: Event[]; onBack: () => void; onCreate: (payload: Omit<Account, "id">) => void; onUpdate: (id: string, payload: Omit<Account, "id">) => void; onDelete: (id: string) => void }) {
   const [editing, setEditing] = useState<Account | undefined>();
-  return <section className="page-grid"><div className="panel form-panel"><SectionHeading title={editing ? "계좌 수정" : "계좌 추가"} description="현재 보유한 자산과 부채를 계좌 단위로 등록하세요. 모든 계좌는 같은 현재 상태 기준일을 사용해야 합니다." /><AccountForm key={editing?.id ?? "new"} initial={editing} submitLabel={editing ? "변경 저장" : "계좌 추가"} onSubmit={(payload) => { if (editing) { onUpdate(editing.id, payload); setEditing(undefined); } else onCreate(payload); }} onCancel={editing ? () => setEditing(undefined) : undefined} /></div><div className="panel"><SectionHeading title="등록된 계좌" description="계좌 정보를 수정할 수 있으며, 연결된 이벤트가 없는 계좌만 삭제할 수 있습니다." /><AccountList accounts={accounts} events={events} onEdit={setEditing} onDelete={onDelete} /></div></section>;
+  const [mobileView, setMobileView] = useState<"list" | "form">("list");
+  const editAccount = (item: Account) => { setEditing(item); setMobileView("form"); };
+  const showList = () => { setEditing(undefined); setMobileView("list"); };
+  return <><ManagementActions activeView={mobileView} itemLabel="계좌" onBack={onBack} onShowList={showList} onShowForm={() => { setEditing(undefined); setMobileView("form"); }} /><section className="page-grid"><div className={`panel form-panel management-panel ${mobileView !== "form" ? "mobile-hidden" : ""}`}><SectionHeading title={editing ? "계좌 수정" : "계좌 추가"} description="현재 보유한 자산과 부채를 계좌 단위로 등록하세요. 모든 계좌는 같은 현재 상태 기준일을 사용해야 합니다." /><AccountForm key={editing?.id ?? "new"} initial={editing} submitLabel={editing ? "변경 저장" : "계좌 추가"} onSubmit={(payload) => { if (editing) onUpdate(editing.id, payload); else onCreate(payload); showList(); }} onCancel={editing ? showList : undefined} /></div><div className={`panel management-panel ${mobileView !== "list" ? "mobile-hidden" : ""}`}><SectionHeading title="등록된 계좌" description="계좌 정보를 수정할 수 있으며, 연결된 이벤트가 없는 계좌만 삭제할 수 있습니다." /><AccountList accounts={accounts} events={events} onEdit={editAccount} onDelete={onDelete} /></div></section></>;
 }
 
-function EventsPage({ accounts, events, onCreate, onUpdate, onDelete }: { accounts: Account[]; events: Event[]; onCreate: (payload: Omit<Event, "id">) => void; onUpdate: (id: string, payload: Omit<Event, "id">) => void; onDelete: (id: string) => void }) {
+function EventsPage({ accounts, events, onBack, onCreate, onUpdate, onDelete }: { accounts: Account[]; events: Event[]; onBack: () => void; onCreate: (payload: Omit<Event, "id">) => void; onUpdate: (id: string, payload: Omit<Event, "id">) => void; onDelete: (id: string) => void }) {
   const [editing, setEditing] = useState<Event | undefined>();
-  return <section className="page-grid"><div className="panel form-panel"><SectionHeading title={editing ? "이벤트 수정" : "이벤트 추가"} description="월급, 지출, 이체처럼 앞으로 일어날 중요한 사건만 기록하세요. 이벤트 유형에 따라 필요한 계좌만 표시됩니다." /><EventForm key={editing?.id ?? "new"} accounts={accounts} initial={editing} submitLabel={editing ? "변경 저장" : "이벤트 추가"} onSubmit={(payload) => { if (editing) { onUpdate(editing.id, payload); setEditing(undefined); } else onCreate(payload); }} onCancel={editing ? () => setEditing(undefined) : undefined} /></div><div className="panel"><SectionHeading title="입력 안내" description="이벤트는 정확한 발생일을 기준으로 계산합니다." /><ul className="guide-list"><li><strong>외부에서 입금</strong><span>수입을 선택하고 입금 계좌만 지정합니다.</span></li><li><strong>외부로 출금</strong><span>지출을 선택하고 출금 계좌만 지정합니다.</span></li><li><strong>계좌 간 이동</strong><span>이체를 선택하고 출발·도착 계좌를 모두 지정합니다.</span></li><li><strong>수정·삭제</strong><span>아래 이벤트 목록에서 내용을 수정하거나 삭제할 수 있습니다.</span></li></ul><div className="event-management"><EventTimeline events={events} onEdit={setEditing} onDelete={onDelete} /></div></div></section>;
+  const [mobileView, setMobileView] = useState<"list" | "form">("list");
+  const editEvent = (item: Event) => { setEditing(item); setMobileView("form"); };
+  const showList = () => { setEditing(undefined); setMobileView("list"); };
+  return <><ManagementActions activeView={mobileView} itemLabel="이벤트" onBack={onBack} onShowList={showList} onShowForm={() => { setEditing(undefined); setMobileView("form"); }} /><section className="page-grid"><div className={`panel form-panel management-panel ${mobileView !== "form" ? "mobile-hidden" : ""}`}><SectionHeading title={editing ? "이벤트 수정" : "이벤트 추가"} description="월급, 지출, 이체처럼 앞으로 일어날 중요한 사건만 기록하세요. 이벤트 유형에 따라 필요한 계좌만 표시됩니다." /><EventForm key={editing?.id ?? "new"} accounts={accounts} initial={editing} submitLabel={editing ? "변경 저장" : "이벤트 추가"} onSubmit={(payload) => { if (editing) onUpdate(editing.id, payload); else onCreate(payload); showList(); }} onCancel={editing ? showList : undefined} /></div><div className={`panel management-panel ${mobileView !== "list" ? "mobile-hidden" : ""}`}><SectionHeading title="입력 안내" description="이벤트는 정확한 발생일을 기준으로 계산합니다." /><ul className="guide-list"><li><strong>외부에서 입금</strong><span>수입을 선택하고 입금 계좌만 지정합니다.</span></li><li><strong>외부로 출금</strong><span>지출을 선택하고 출금 계좌만 지정합니다.</span></li><li><strong>계좌 간 이동</strong><span>이체를 선택하고 출발·도착 계좌를 모두 지정합니다.</span></li><li><strong>수정·삭제</strong><span>아래 이벤트 목록에서 내용을 수정하거나 삭제할 수 있습니다.</span></li></ul><div className="event-management"><EventTimeline events={events} onEdit={editEvent} onDelete={onDelete} /></div></div></section></>;
+}
+
+function ManagementActions({ activeView, itemLabel, onBack, onShowList, onShowForm }: { activeView: "list" | "form"; itemLabel: string; onBack: () => void; onShowList: () => void; onShowForm: () => void }) {
+  return <div className="management-actions"><button className="secondary back-button" onClick={onBack}><span aria-hidden="true">←</span> 대시보드</button><div className="mobile-view-switcher" aria-label={`${itemLabel} 화면 선택`}><button className={activeView === "list" ? "active" : "secondary"} aria-pressed={activeView === "list"} onClick={onShowList}>목록</button><button className={activeView === "form" ? "active" : "secondary"} aria-pressed={activeView === "form"} onClick={onShowForm}>{itemLabel} 추가</button></div></div>;
 }
 
 function Metric({ title, value, danger = false }: { title: string; value: string; danger?: boolean }) { return <article className={`metric ${danger ? "danger" : ""}`}><p>{title}</p><strong>{value}</strong></article>; }

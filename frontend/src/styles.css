@@ -13,15 +13,17 @@ h2 { font-size: 1rem; margin-bottom: 5px; }
 .eyebrow, .muted { color: #65736f; font-size: .85rem; }
 .period-control { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 .sidebar { position: sticky; top: 0; flex: 0 0 240px; height: 100vh; padding: 32px 20px; background: #173f3b; color: white; z-index: 20; }
-.sidebar-brand { padding: 0 8px 28px; }
+.sidebar-brand { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; padding: 0 8px 28px; }
 .sidebar-brand .eyebrow { color: #a9c5bf; margin-bottom: 6px; }
 .sidebar-brand strong { display: block; font-size: 1.08rem; line-height: 1.4; }
 .nav { display: flex; flex-direction: column; gap: 6px; }
-.nav button { width: 100%; min-height: 44px; border-radius: 8px; text-align: left; padding: 10px 12px; }
+.nav button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; border-radius: 8px; text-align: left; padding: 10px 12px; }
+.nav-icon { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; border-radius: 5px; background: rgba(255, 255, 255, .1); font-size: .9rem; }
+.nav .active .nav-icon { background: #dfeae5; }
 .nav .quiet { background: transparent; color: #53625d; }
 .sidebar .nav .quiet { color: #d2e1dd; }
 .nav .active { background: #f5f7f4; color: #174f49; }
-.menu-button, .drawer-backdrop { display: none; }
+.menu-button, .drawer-close, .drawer-backdrop { display: none; }
 .metrics { margin-bottom: 16px; }
 .metric, .panel { background: white; border: 1px solid #dde5e0; border-radius: 14px; padding: 20px; }
 .metric { flex: 1; }
@@ -33,7 +35,12 @@ h2 { font-size: 1rem; margin-bottom: 5px; }
 .risk-guard.has-risk { background: #fff7f4; border-color: #e9b4a8; border-left-color: #b8422f; }
 .risk-guard.is-safe { background: #f5faf7; border-color: #c9dfd3; border-left-color: #398061; }
 .risk-guard .section-heading { margin-bottom: 8px; }
-.chart { height: 330px; }
+.chart { min-height: 350px; }
+.chart-visual { width: 100%; height: 250px; min-width: 0; }
+.chart-legend { display: flex; justify-content: flex-end; gap: 16px; margin: -4px 8px 2px; color: #65736f; font-size: .78rem; }
+.chart-legend span::before { content: ""; display: inline-block; width: 16px; height: 3px; margin-right: 5px; border-radius: 2px; vertical-align: middle; }
+.chart-legend .cash::before { background: #e36d4f; }
+.chart-legend .net-worth::before { background: #216e67; }
 .grid > .panel, .page-grid > .panel { flex: 1; min-width: 0; }
 .section-heading { margin-bottom: 14px; }
 .heading-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -42,6 +49,9 @@ h2 { font-size: 1rem; margin-bottom: 5px; }
 .section-heading p { color: #65736f; font-size: .85rem; line-height: 1.5; }
 .page-grid { align-items: flex-start; }
 .form-panel { flex: 1.4 !important; }
+.management-actions { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.back-button { display: inline-flex; align-items: center; gap: 6px; }
+.mobile-view-switcher { display: none; }
 form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 12px; margin-bottom: 0; }
 label { display: flex; flex-direction: column; gap: 5px; font-size: .88rem; font-weight: 600; }
 small { color: #65736f; font-size: .76rem; font-weight: 400; line-height: 1.4; }
@@ -88,6 +98,7 @@ form > button { grid-column: 1 / -1; }
   .app-header, .grid, .page-grid { flex-direction: column; }
   .app-header { position: relative; align-items: stretch; padding-left: 52px; min-height: 44px; }
   .menu-button { display: inline-flex; position: absolute; left: 0; top: 0; width: 44px; min-height: 44px; align-items: center; justify-content: center; padding: 0; font-size: 1.25rem; }
+  .drawer-close { display: inline-flex; flex: 0 0 44px; min-height: 44px; align-items: center; justify-content: center; padding: 0; background: rgba(255, 255, 255, .12); font-size: 1.5rem; }
   .sidebar { position: fixed; left: 0; top: 0; width: min(82vw, 300px); height: 100dvh; padding-top: 28px; visibility: hidden; transform: translateX(-105%); transition: transform .2s ease, visibility 0s .2s; box-shadow: 10px 0 30px rgba(23, 63, 59, .18); }
   .sidebar.open { visibility: visible; transform: translateX(0); transition-delay: 0s; }
   .drawer-backdrop { position: fixed; inset: 0; width: 100%; height: 100%; min-height: 0; border-radius: 0; padding: 0; background: rgba(17, 31, 29, .46); opacity: 0; pointer-events: none; z-index: 15; transition: opacity .2s ease; }
@@ -96,8 +107,17 @@ form > button { grid-column: 1 / -1; }
   .metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .metric:last-child { grid-column: 1 / -1; }
   .metric, .panel { padding: 16px; }
-  .chart { height: 290px; }
+  .chart { min-height: 310px; }
+  .chart-visual { height: 220px; margin-left: -8px; width: calc(100% + 8px); }
+  .chart-legend { justify-content: flex-start; margin: -2px 0 2px; }
   form { grid-template-columns: 1fr; }
+  input, select, button { min-height: 44px; }
+  .management-actions { flex-wrap: wrap; justify-content: space-between; gap: 10px; }
+  .management-actions .back-button { width: 100%; justify-content: center; }
+  .mobile-view-switcher { display: grid; grid-template-columns: 1fr 1fr; width: 100%; gap: 6px; padding: 4px; border-radius: 10px; background: #e8efeb; }
+  .mobile-view-switcher button { background: transparent; color: #216e67; }
+  .mobile-view-switcher .active { background: white; color: #174f49; box-shadow: 0 1px 4px rgba(23, 63, 59, .12); }
+  .management-panel.mobile-hidden { display: none; }
   .heading-row { align-items: flex-start; }
   .heading-actions { flex-shrink: 0; }
   .heading-actions button { max-width: 150px; }
@@ -109,6 +129,7 @@ form > button { grid-column: 1 / -1; }
   .timeline time { min-width: 78px; }
   .timeline li > div:nth-child(2) { flex: 1; min-width: 140px; }
   .timeline .row-actions { width: 100%; justify-content: flex-end; margin-left: 86px; }
+  .row-actions button { min-height: 40px; }
   .month-controls { align-items: stretch; }
   .month-controls label { min-width: 0; flex: 1; }
 }
@@ -117,6 +138,8 @@ form > button { grid-column: 1 / -1; }
   .metric:last-child { grid-column: auto; }
   .heading-row { flex-direction: column; }
   .heading-actions, .heading-actions button { width: 100%; max-width: none; }
+  .chart { padding-left: 12px; padding-right: 8px; }
+  .chart-visual { height: 210px; margin-left: -12px; width: calc(100% + 12px); }
   .timeline .row-actions { margin-left: 0; }
   .month-controls { flex-wrap: wrap; }
   .month-controls label { order: -1; flex-basis: 100%; }
