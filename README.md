@@ -172,7 +172,7 @@ npm run build
 
 | 영역 | 기술 |
 | --- | --- |
-| Frontend | React 18, TypeScript, Vite, TanStack Query, Recharts |
+| Frontend | React 18, TypeScript, Vite, TanStack Query, SVG |
 | Backend | Python 3.12, FastAPI, SQLAlchemy |
 | Database | MySQL 8.4 (Docker), SQLite (로컬 기본값) |
 | Test | unittest, Vitest |

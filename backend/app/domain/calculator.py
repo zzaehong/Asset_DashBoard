@@ -54,6 +54,8 @@ def validate_accounts(accounts: Iterable[Account]) -> dict[str, Account]:
         raise DomainValidationError("All accounts must share the same as_of_date.")
     if len(by_id) != len(account_list):
         raise DomainValidationError("Account ids must be unique.")
+    if any(account.current_balance < Decimal("0") for account in account_list):
+        raise DomainValidationError("Account balances cannot be negative.")
     return by_id
 
 
@@ -74,6 +76,12 @@ def validate_event(event: Event, accounts: dict[str, Account]) -> None:
         raise DomainValidationError(f"{event.type.value} is not available in the Phase 2 MVP.")
     if event.event_date and month_start(event.event_date) != month_start(event.month):
         raise DomainValidationError("event_date must belong to event month.")
+    if event.recurrence_until and not event.recurrence_months:
+        raise DomainValidationError("recurrence_until requires recurrence_months.")
+    if event.recurrence_months is not None and event.recurrence_months <= 0:
+        raise DomainValidationError("recurrence_months must be greater than zero.")
+    if event.recurrence_until and event.recurrence_until < event.effective_date:
+        raise DomainValidationError("recurrence_until cannot be earlier than event_date.")
 
     if event.type is EventType.INCOME:
         _require_type(accounts, event.destination_account_id, {AccountType.CASH, AccountType.SAVINGS})
@@ -116,8 +124,6 @@ def _event_deltas(event: Event) -> dict[str, Decimal]:
 def _expand_recurrence(event: Event, horizon_end: date) -> list[Event]:
     if not event.recurrence_months:
         return [event]
-    if event.recurrence_months <= 0:
-        raise DomainValidationError("recurrence_months must be greater than zero.")
     until = min(event.recurrence_until or horizon_end, horizon_end)
     result: list[Event] = []
     offset = 0
