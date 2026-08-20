@@ -130,6 +130,18 @@ class CalculationEngineTests(TestCase):
         with self.assertRaises(DomainValidationError):
             calculate_forecast([account("cash", AccountType.CASH, "100")], [invalid], 3)
 
+    def test_recurrence_end_requires_interval(self) -> None:
+        invalid = replace(
+            event("salary", EventType.INCOME, "100", destination="cash", when=date(2026, 8, 25)),
+            recurrence_until=date(2026, 10, 25),
+        )
+        with self.assertRaises(DomainValidationError):
+            calculate_forecast([account("cash", AccountType.CASH, "100")], [invalid], 3)
+
+    def test_account_balance_cannot_be_negative(self) -> None:
+        with self.assertRaises(DomainValidationError):
+            calculate_forecast([account("cash", AccountType.CASH, "-1")], [], 3)
+
     def test_all_accounts_need_same_as_of_date(self) -> None:
         mismatched = Account("savings", "savings", AccountType.SAVINGS, Decimal("0"), date(2026, 8, 2))
         with self.assertRaises(DomainValidationError):

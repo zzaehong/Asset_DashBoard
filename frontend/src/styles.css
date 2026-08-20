@@ -30,6 +30,8 @@ h2 { font-size: 1rem; margin-bottom: 5px; }
 .metric p { color: #65736f; font-size: .85rem; margin-bottom: 8px; }
 .metric strong { font-size: 1.4rem; }
 .danger strong, .error { color: #b8422f; }
+.data-error { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-color: #e9b7aa; background: #fff8f5; }
+.data-error p { margin: 4px 0 0; color: #6e514a; }
 .panel { margin-bottom: 16px; }
 .risk-guard { border-left-width: 5px; }
 .risk-guard.has-risk { background: #fff7f4; border-color: #e9b4a8; border-left-color: #b8422f; }

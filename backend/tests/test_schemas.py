@@ -4,8 +4,8 @@ from unittest import TestCase
 
 from pydantic import ValidationError
 
-from app.api.schemas import AccountPayload
-from app.domain.models import AccountType
+from app.api.schemas import AccountPayload, EventPayload
+from app.domain.models import AccountType, EventType
 
 
 class AccountPayloadTests(TestCase):
@@ -17,3 +17,23 @@ class AccountPayloadTests(TestCase):
                 current_balance=Decimal("-1"),
                 as_of_date=date(2026, 8, 20),
             )
+
+
+class EventPayloadTests(TestCase):
+    def payload(self, **overrides) -> EventPayload:
+        values = {
+            "name": "월급",
+            "amount": Decimal("100"),
+            "type": EventType.INCOME,
+            "event_date": date(2026, 8, 25),
+            "destination_account_id": "cash",
+        }
+        return EventPayload(**(values | overrides))
+
+    def test_recurrence_end_requires_interval(self) -> None:
+        with self.assertRaises(ValidationError):
+            self.payload(recurrence_until=date(2026, 10, 25))
+
+    def test_recurrence_end_cannot_precede_event_date(self) -> None:
+        with self.assertRaises(ValidationError):
+            self.payload(recurrence_months=1, recurrence_until=date(2026, 8, 24))
