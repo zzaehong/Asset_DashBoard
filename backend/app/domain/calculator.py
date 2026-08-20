@@ -74,6 +74,8 @@ def validate_event(event: Event, accounts: dict[str, Account]) -> None:
         raise DomainValidationError(f"{event.type.value} is not available in the Phase 2 MVP.")
     if event.event_date and month_start(event.event_date) != month_start(event.month):
         raise DomainValidationError("event_date must belong to event month.")
+    if event.recurrence_until and event.recurrence_until < event.effective_date:
+        raise DomainValidationError("recurrence_until cannot be earlier than event_date.")
 
     if event.type is EventType.INCOME:
         _require_type(accounts, event.destination_account_id, {AccountType.CASH, AccountType.SAVINGS})

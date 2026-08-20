@@ -9,7 +9,7 @@ from app.domain.models import AccountType, EventStatus, EventType, Liquidity
 class AccountPayload(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     type: AccountType
-    current_balance: Decimal
+    current_balance: Decimal = Field(ge=0)
     as_of_date: date
     currency: str = "KRW"
     liquidity: Liquidity = Liquidity.LIQUID
@@ -21,7 +21,6 @@ class AccountResponse(AccountPayload):
 
 
 class EventPayload(BaseModel):
-    month: date | None = None
     name: str = Field(min_length=1, max_length=120)
     amount: Decimal = Field(gt=0)
     type: EventType
@@ -37,4 +36,3 @@ class EventPayload(BaseModel):
 class EventResponse(EventPayload):
     id: str
     month: date
-    event_date: date | None = None

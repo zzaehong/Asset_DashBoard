@@ -33,11 +33,9 @@ def event_response(row: EventRow) -> EventResponse:
 
 
 def validate_event_payload(payload: EventPayload, repo: PlannerRepository, event_id: str) -> None:
-    if payload.event_date is None:
-        raise HTTPException(422, "Event date is required.")
     candidate = Event(
         id=event_id,
-        month=payload.month or payload.event_date.replace(day=1),
+        month=payload.event_date.replace(day=1),
         name=payload.name,
         amount=payload.amount,
         type=payload.type,
@@ -112,7 +110,7 @@ def create_event(payload: EventPayload, session: Session = Depends(get_session))
     event_id = str(uuid4())
     validate_event_payload(payload, repo, event_id)
     values = payload.model_dump()
-    values["month"] = payload.month or payload.event_date.replace(day=1)
+    values["month"] = payload.event_date.replace(day=1)
     row = repo.save_event(EventRow(id=event_id, **values))
     return event_response(row)
 
@@ -125,7 +123,7 @@ def update_event(event_id: str, payload: EventPayload, session: Session = Depend
         raise HTTPException(404, "Event not found.")
     validate_event_payload(payload, repo, event_id)
     values = payload.model_dump()
-    values["month"] = payload.month or payload.event_date.replace(day=1)
+    values["month"] = payload.event_date.replace(day=1)
     for key, value in values.items():
         setattr(row, key, value)
     return event_response(repo.save_event(row))
