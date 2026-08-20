@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -15,6 +15,7 @@ type Page = "dashboard" | "monthly" | "accounts" | "events";
 export default function App() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState<Page>("dashboard");
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [period, setPeriod] = useState(12);
   const accounts = useQuery({ queryKey: ["accounts"], queryFn: api.accounts });
   const events = useQuery({ queryKey: ["events"], queryFn: api.events });
@@ -34,25 +35,51 @@ export default function App() {
   })) ?? [];
   const accountList = accounts.data ?? [];
 
-  return (
-    <main>
-      <header className="app-header">
-        <div><p className="eyebrow">개인용 MVP</p><h1>월간 자산 흐름 플래너</h1><p className="intro">앞으로 일어날 중요한 재무 사건을 입력하고, 현금과 순자산의 흐름을 확인하세요.</p></div>
-        {page === "dashboard" && <label className="period-control">분석 기간<select value={period} onChange={(event) => setPeriod(Number(event.target.value))}>{[3, 6, 12].map((value) => <option key={value} value={value}>{value}개월</option>)}</select></label>}
-      </header>
-      <nav className="nav" aria-label="주 메뉴">
-        <button className={page === "dashboard" ? "active" : "quiet"} onClick={() => setPage("dashboard")}>대시보드</button>
-        <button className={page === "monthly" ? "active" : "quiet"} onClick={() => setPage("monthly")}>월별 계획</button>
-        <button className={page === "accounts" ? "active" : "quiet"} onClick={() => setPage("accounts")}>계좌 관리</button>
-        <button className={page === "events" ? "active" : "quiet"} onClick={() => setPage("events")}>이벤트 관리</button>
-      </nav>
+  useEffect(() => {
+    if (!isMenuOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsMenuOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [isMenuOpen]);
 
-      {page === "dashboard" && <Dashboard accounts={accountList} events={orderedEvents} chartData={chartData} latest={latest} risks={forecast.data?.risks ?? []} forecastError={forecast.isError} onAddAccount={() => setPage("accounts")} onManageEvents={() => setPage("events")} onDeleteAccount={(id) => deleteAccount.mutate(id)} />}
-      {page === "monthly" && <MonthlyPlanPage events={orderedEvents} onManageEvents={() => setPage("events")} />}
-      {page === "accounts" && <AccountsPage accounts={accountList} events={orderedEvents} onCreate={(payload) => createAccount.mutate(payload)} onUpdate={(id, payload) => updateAccount.mutate({ id, payload })} onDelete={(id) => deleteAccount.mutate(id)} />}
-      {page === "events" && <EventsPage accounts={accountList} events={orderedEvents} onCreate={(payload) => createEvent.mutate(payload)} onUpdate={(id, payload) => updateEvent.mutate({ id, payload })} onDelete={(id) => deleteEvent.mutate(id)} />}
-    </main>
+  const selectPage = (nextPage: Page) => {
+    setPage(nextPage);
+    setIsMenuOpen(false);
+  };
+
+  return (
+    <div className="app-shell">
+      <button className={`drawer-backdrop ${isMenuOpen ? "open" : ""}`} aria-label="메뉴 닫기" tabIndex={isMenuOpen ? 0 : -1} onClick={() => setIsMenuOpen(false)} />
+      <aside className={`sidebar ${isMenuOpen ? "open" : ""}`} id="main-navigation" aria-label="주 메뉴">
+        <div className="sidebar-brand"><p className="eyebrow">개인용 MVP</p><strong>월간 자산 흐름 플래너</strong></div>
+        <SidebarNav page={page} onSelect={selectPage} />
+      </aside>
+      <main className="app-content">
+        <header className="app-header">
+          <button className="menu-button secondary" aria-label="메뉴 열기" aria-controls="main-navigation" aria-expanded={isMenuOpen} onClick={() => setIsMenuOpen(true)}><span aria-hidden="true">☰</span></button>
+          <div className="page-intro"><h1>{pageTitle(page)}</h1><p className="intro">앞으로 일어날 중요한 재무 사건을 입력하고, 현금과 순자산의 흐름을 확인하세요.</p></div>
+          {page === "dashboard" && <label className="period-control">분석 기간<select value={period} onChange={(event) => setPeriod(Number(event.target.value))}>{[3, 6, 12].map((value) => <option key={value} value={value}>{value}개월</option>)}</select></label>}
+        </header>
+
+        {page === "dashboard" && <Dashboard accounts={accountList} events={orderedEvents} chartData={chartData} latest={latest} risks={forecast.data?.risks ?? []} forecastError={forecast.isError} onAddAccount={() => selectPage("accounts")} onManageEvents={() => selectPage("events")} onDeleteAccount={(id) => deleteAccount.mutate(id)} />}
+        {page === "monthly" && <MonthlyPlanPage events={orderedEvents} onManageEvents={() => selectPage("events")} />}
+        {page === "accounts" && <AccountsPage accounts={accountList} events={orderedEvents} onCreate={(payload) => createAccount.mutate(payload)} onUpdate={(id, payload) => updateAccount.mutate({ id, payload })} onDelete={(id) => deleteAccount.mutate(id)} />}
+        {page === "events" && <EventsPage accounts={accountList} events={orderedEvents} onCreate={(payload) => createEvent.mutate(payload)} onUpdate={(id, payload) => updateEvent.mutate({ id, payload })} onDelete={(id) => deleteEvent.mutate(id)} />}
+      </main>
+    </div>
   );
+}
+
+function SidebarNav({ page, onSelect }: { page: Page; onSelect: (page: Page) => void }) {
+  const items: { page: Page; label: string }[] = [
+    { page: "dashboard", label: "대시보드" },
+    { page: "monthly", label: "월별 계획" },
+    { page: "accounts", label: "계좌 관리" },
+    { page: "events", label: "이벤트 관리" },
+  ];
+  return <nav className="nav">{items.map((item) => <button key={item.page} className={page === item.page ? "active" : "quiet"} aria-current={page === item.page ? "page" : undefined} onClick={() => onSelect(item.page)}>{item.label}</button>)}</nav>;
 }
 
 function MonthlyPlanPage({ events, onManageEvents }: { events: Event[]; onManageEvents: () => void }) {
@@ -67,6 +94,7 @@ function MonthlyPlanPage({ events, onManageEvents }: { events: Event[]; onManage
 
 function Dashboard({ accounts, events, chartData, latest, risks, forecastError, onAddAccount, onManageEvents, onDeleteAccount }: { accounts: Account[]; events: Event[]; chartData: { month: string; cash: number; netWorth: number }[]; latest?: { balances: Record<string, string>; cash: string; net_worth: string }; risks: { type: string; date: string; cash_balance: string }[]; forecastError: boolean; onAddAccount: () => void; onManageEvents: () => void; onDeleteAccount: (id: string) => void }) {
   return <>
+    <section className={`panel risk-guard ${risks.length ? "has-risk" : "is-safe"}`}><SectionHeading title="Risk Guard" description="행동을 추천하지 않고, 현금 부족이 언제 발생하는지만 알려줍니다." />{risks.length ? <ul className="risks">{risks.map((risk, index) => <li key={`${risk.type}-${index}`}><strong>{risk.type === "CASH_SHORTAGE" ? "현금 부족" : "투자자금 이동 후 현금 부족"}</strong><span>{risk.date} · {formatMoney(risk.cash_balance)}</span></li>)}</ul> : <p className="muted">현재 선택한 기간에 감지된 현금 위험이 없습니다.</p>}</section>
     <section className="metrics">
       <Metric title="기간 말 현금" value={formatMoney(latest?.cash ?? "0")} />
       <Metric title="기간 말 순자산" value={formatMoney(latest?.net_worth ?? "0")} />
@@ -77,7 +105,6 @@ function Dashboard({ accounts, events, chartData, latest, risks, forecastError, 
       <div className="panel"><SectionHeading title="계좌별 예상 잔액" description="선택한 분석 기간의 마지막 시점에 예상되는 계좌 잔액입니다." actions={<button onClick={onAddAccount}>계좌 추가</button>} /><AccountList accounts={accounts} events={events} projectedBalances={latest?.balances} onDelete={onDeleteAccount} /></div>
       <div className="panel"><SectionHeading title="이벤트 타임라인" description="등록한 재무 사건을 발생 예정일 순서로 보여줍니다." actions={<button onClick={onManageEvents}>이벤트 추가·수정하기</button>} /><EventTimeline events={events} /></div>
     </section>
-    <section className="panel"><SectionHeading title="Risk Guard" description="행동을 추천하지 않고, 현금 부족이 언제 발생하는지만 알려줍니다." />{risks.length ? <ul className="risks">{risks.map((risk, index) => <li key={`${risk.type}-${index}`}><strong>{risk.type === "CASH_SHORTAGE" ? "현금 부족" : "투자자금 이동 후 현금 부족"}</strong><span>{risk.date} · {formatMoney(risk.cash_balance)}</span></li>)}</ul> : <p className="muted">현재 선택한 기간에 감지된 현금 위험이 없습니다.</p>}</section>
   </>;
 }
 
@@ -133,6 +160,7 @@ function EventForm({ accounts, initial, submitLabel = "이벤트 추가", onSubm
 }
 
 function eventDate(item: Event) { return item.event_date ?? `${item.month.slice(0, 7)}-01`; }
+function pageTitle(page: Page) { return ({ dashboard: "대시보드", monthly: "월별 계획", accounts: "계좌 관리", events: "이벤트 관리" }[page]); }
 function accountLabel(type: AccountType) { return ({ CASH: "입출금", SAVINGS: "저축", INVESTMENT: "투자", DEBT: "부채", OTHER_ASSET: "기타 자산" }[type]); }
 function accountDescription(type: AccountType) { return ({ CASH: "생활비·급여·비상금처럼 바로 사용할 수 있는 계좌", SAVINGS: "예금·적금처럼 저축 목적의 계좌", INVESTMENT: "주식·ETF·암호화폐 등 투자 계좌", DEBT: "대출처럼 상환해야 하는 부채 계좌", OTHER_ASSET: "보증금·차량처럼 계좌 외 자산" }[type]); }
 function eventLabel(type: string) { return ({ INCOME: "수입", EXPENSE: "지출", TRANSFER: "계좌 간 이체", INVESTMENT_CONTRIBUTION: "투자금 추가", DEBT_DRAW: "대출 실행", DEBT_PRINCIPAL_REPAYMENT: "대출 원금 상환", DEBT_INTEREST: "대출 이자 납부", SAVINGS_MATURITY: "예·적금 만기" }[type] ?? type); }
